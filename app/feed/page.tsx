@@ -15,17 +15,21 @@ interface Writing {
   challengeDuration: number;
   createdAt: string;
   excerpt: string;
+  reactionCount?: number;
 }
+
+type SortOption = 'recent' | 'popular';
 
 export default function FeedPage() {
   const [writings, setWritings] = useState<Writing[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<CategoryKey | null>(null);
+  const [sort, setSort] = useState<SortOption>('recent');
   const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     fetchWritings();
-  }, [selectedCategory, currentPage]);
+  }, [selectedCategory, sort, currentPage]);
 
   const fetchWritings = async () => {
     try {
@@ -33,6 +37,7 @@ export default function FeedPage() {
       const params = new URLSearchParams({
         page: currentPage.toString(),
         limit: '20',
+        sort,
       });
 
       if (selectedCategory) {

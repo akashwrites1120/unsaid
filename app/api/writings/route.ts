@@ -118,14 +118,60 @@ export async function GET(request: NextRequest) {
     // Get Supabase client
     const supabase = createServerClient();
 
-    // Build the query
+    if (sort === 'popular') {
+      // For popular sort, we need to join with reactions and sort by total count
+      // Use the view we created
+      let query = supabase
+        .from('public_writings_with_reactions')
+        .select('id, content, word_count, category, challenge_mode, challenge_duration, created_at, total_reactions')
+        .order('total_reactions', { ascending: false })
+        .range((page - 1) * limit, page * limit - 1);
+
+      if (category) {
+        query = query.eq('category', category);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('Database error:', error);
+        return NextResponse.json(
+          { error: 'Failed to fetch writings' },
+          { status: 500 }
+        );
+      }
+
+      const writings = data.map(writing => ({
+        id: writing.id,
+        content: writing.content,
+        wordCount: writing.word_count,
+        category: writing.category,
+        challengeMode: writing.challenge_mode,
+        challengeDuration: writing.challenge_duration,
+        createdAt: writing.created_at,
+        excerpt: writing.content.length > 150
+          ? writing.content.substring(0, 150) + '...'
+          : writing.content,
+        reactionCount: writing.total_reactions || 0,
+      }));
+
+      return NextResponse.json({
+        writings,
+        pagination: {
+          page,
+          limit,
+          total: writings.length,
+        },
+      });
+    }
+
+    // For recent sort (default)
     let query = supabase
       .from('public_writings')
       .select('id, content, word_count, category, challenge_mode, challenge_duration, created_at')
-      .order('created_at', { ascending: sort === 'recent' ? false : true })
+      .order('created_at', { ascending: false })
       .range((page - 1) * limit, page * limit - 1);
 
-    // Add category filter if provided
     if (category) {
       query = query.eq('category', category);
     }
@@ -152,6 +198,7 @@ export async function GET(request: NextRequest) {
       excerpt: writing.content.length > 150
         ? writing.content.substring(0, 150) + '...'
         : writing.content,
+      reactionCount: 0,
     }));
 
     return NextResponse.json({
