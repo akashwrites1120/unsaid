@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { challengeModeOrder, getChallengeMode, type ChallengeModeKey } from '@/lib/config/challengeModes';
+import { categories, type CategoryKey, getDefaultCategory } from '@/lib/config/categories';
 
 const WRITING_PRESETS = [
   'College assignment',
@@ -20,6 +21,7 @@ export default function WritingSetupPage() {
   const [topic, setTopic] = useState('');
   const [customTopic, setCustomTopic] = useState('');
   const [selectedMode, setSelectedMode] = useState<ChallengeModeKey>('focus');
+  const [selectedCategory, setSelectedCategory] = useState<CategoryKey>(getDefaultCategory().key);
   const [isCustom, setIsCustom] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -31,6 +33,7 @@ export default function WritingSetupPage() {
     sessionStorage.setItem('writing-session', JSON.stringify({
       topic: finalTopic,
       mode: selectedMode,
+      category: selectedCategory,
       startTime: Date.now(),
       content: '',
     }));
@@ -125,6 +128,44 @@ export default function WritingSetupPage() {
                 </span>
               </div>
             </label>
+          </fieldset>
+
+          {/* Category Selector */}
+          <fieldset className="space-y-4">
+            <legend className="text-sm font-semibold text-gray-700 mb-2 block">
+              Category
+            </legend>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3" role="radiogroup" aria-label="Writing category">
+              {Object.entries(categories).map(([key, category]) => (
+                <label
+                  key={key}
+                  className={`relative p-3 rounded-none border transition-all cursor-pointer ${
+                    selectedCategory === key
+                      ? 'border-gray-900 bg-gray-100 text-gray-900'
+                      : 'border-gray-300 text-gray-600 hover:border-gray-400 hover:text-gray-900'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="category"
+                    value={key}
+                    checked={selectedCategory === key}
+                    onChange={() => setSelectedCategory(key as CategoryKey)}
+                    className="sr-only"
+                    aria-label={category.label}
+                  />
+                  <div className="text-center">
+                    <div className="text-2xl mb-1">{category.emoji}</div>
+                    <div className="font-medium text-sm">{category.label}</div>
+                  </div>
+                  {selectedCategory === key && (
+                    <div
+                      className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-gray-900"
+                    />
+                  )}
+                </label>
+              ))}
+            </div>
           </fieldset>
 
           {/* Mode Selector */}

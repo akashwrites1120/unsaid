@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { getChallengeMode, type ChallengeModeKey } from '@/lib/config/challengeModes';
 import { formatElapsed } from '@/lib/timer/inactivityTimer';
+import { categories } from '@/lib/config/categories';
 
 interface ChallengeResult {
   words: number;
@@ -14,6 +15,7 @@ interface ChallengeResult {
   status: 'completed' | 'failed' | 'stopped';
   topic: string;
   content: string;
+  category?: string;
 }
 
 export default function ResultsPage() {
@@ -22,6 +24,8 @@ export default function ResultsPage() {
   const [showPublishOptions, setShowPublishOptions] = useState(false);
   const [isUnderMin, setIsUnderMin] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
 
   // Load session from sessionStorage on mount
   useEffect(() => {
@@ -42,6 +46,7 @@ export default function ResultsPage() {
         status: 'completed',
         topic: savedSession.topic,
         content: savedSession.content,
+        category: savedSession.category || 'thoughts',
       };
       setSession(sessionData);
     }
@@ -76,14 +81,51 @@ export default function ResultsPage() {
     router.push('/write/setup');
   };
 
-  const handlePublish = () => {
+  const handlePublish = async () => {
+    if (!session) return;
+
     setIsPublishing(true);
-    // Simulate publishing process
-    setTimeout(() => {
+    setPublishError(null);
+
+    try {
+      const response = await fetch('/api/writings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          content: session.content,
+          wordCount: session.words,
+          category: session.category,
+          challengeMode: session.mode,
+          challengeDuration: session.time,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to publish');
+      }
+
+      // Mark as published in sessionStorage
+      const updatedSession = {
+        ...session,
+        status: 'published' as const,
+        publishedAt: new Date().toISOString(),
+        publishedId: data.id,
+      };
+      sessionStorage.setItem('writing-session', JSON.stringify(updatedSession));
+
+      // Update local state
+      setSession(updatedSession);
+      setPublishedUrl(data.url);
+
+    } catch (error) {
+      setPublishError(error instanceof Error ? error.message : 'Failed to publish');
+    } finally {
       setIsPublishing(false);
-      setShowPublishOptions(false);
-      router.push('/feed');
-    }, 1500);
+    }
   };
 
   const publishConfig = {
@@ -252,12 +294,49 @@ export default function ResultsPage() {
                   {isPublishing ? 'Publishing...' : 'Publish Anonymously'}
                 </button>
               </div>
+
+              {/* Error message */}
+              {publishError && (
+                <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-red-700 text-sm">{publishError}</p>
+                </div>
+              )}
             </div>
           )}
         </div>
       )}
 
-      {/* Publish confirmation */}
+      {/* Success confirmation */}
+      {publishedUrl && (
+        <div className="mt-8 max-w-2xl mx-auto w-full">
+          <div className="bg-green-50 border border-green-200 rounded-lg p-6">
+            <div className="text-center">
+              <div className="text-4xl mb-4">✓</div>
+              <h2 className="text-xl font-semibold text-green-900 mb-2">
+                Published Successfully!
+              </h2>
+              <p className="text-green-700 mb-4">
+                Your writing is now live and anonymous.
+              </p>
+              <div className="space-y-2">
+                <a
+                  href={publishedUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block px-6 py-2 bg-green-600 text-white hover:bg-green-700 transition-colors rounded-none"
+                >
+                  View Your Writing
+                </a>
+                <div className="text-sm text-green-600">
+                  {publishedUrl}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Publishing spinner */}
       {isPublishing && (
         <div className="fixed inset-0 bg-gray-900/70 flex items-center justify-center z-50">
           <div className="text-center p-8 bg-white border-2 border-green-600 rounded-lg">

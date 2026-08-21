@@ -22,6 +22,7 @@ interface Draft {
 export interface SessionData {
   topic: string;
   mode: string;
+  category: string;
   startTime: number;
   content: string;
 }

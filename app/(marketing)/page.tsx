@@ -30,27 +30,35 @@ export default function LandingPage() {
           writing.
         </p>
 
-        {/* CTA */}
-        <Link
-          href="/write/setup"
-          className="inline-flex items-center gap-2 px-8 py-4 text-lg font-semibold text-black bg-white hover:bg-white/90 transition-colors rounded-none"
-        >
-          Start Writing
-          <svg
-            className="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            aria-hidden="true"
+        {/* CTAs */}
+        <div className="flex flex-col sm:flex-row gap-4 justify-center">
+          <Link
+            href="/write/setup"
+            className="inline-flex items-center gap-2 px-8 py-4 text-lg font-semibold text-black bg-white hover:bg-white/90 transition-colors rounded-none"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M17 8l4 4m0 0l-4 4m4-4H3"
-            />
-          </svg>
-        </Link>
+            Start Writing
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M17 8l4 4m0 0l-4 4m4-4H3"
+              />
+            </svg>
+          </Link>
+          <Link
+            href="/feed"
+            className="inline-flex items-center gap-2 px-8 py-4 text-lg font-semibold text-white bg-white/20 hover:bg-white/30 transition-colors rounded-none border border-white/30"
+          >
+            Read Recent Writings
+          </Link>
+        </div>
 
         {/* Modes hint */}
         <p className="text-sm text-white/40 mt-4">

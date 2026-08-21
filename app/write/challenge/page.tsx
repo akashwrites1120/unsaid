@@ -11,6 +11,7 @@ import { saveDraft, saveSessionToStorage, type SessionData } from '@/lib/storage
 interface ChallengeSession {
   topic: string;
   mode: ChallengeModeKey;
+  category: string;
   startTime: number;
   content: string;
   status: 'idle' | 'running' | 'failed' | 'stopped';
@@ -39,6 +40,7 @@ export default function WritingChallengePage() {
       setSession({
         topic: savedSession.topic,
         mode: savedSession.mode,
+        category: savedSession.category || 'thoughts',
         startTime: savedSession.startTime,
         content: savedSession.content,
         status: 'idle',
