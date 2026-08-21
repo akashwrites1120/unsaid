@@ -14,11 +14,11 @@ Goal: repo scaffolding, no features yet.
 
 | # | Task | Status | Notes |
 |---|---|---|---|
-| 0.1 | Init Next.js (App Router) + TypeScript project | Not started | |
-| 0.2 | Add Tailwind CSS | Not started | |
-| 0.3 | Set up Supabase project + Postgres connection | Not started | Env vars in `.env.local`, not committed. |
-| 0.4 | Create base directory structure per [techstack.md](./techstack.md) §7 | Not started | `/app`, `/lib/config`, `/lib/db`, `/lib/timer`, `/components` |
-| 0.5 | Create config files: `challengeModes.ts`, `publishConfig.ts`, `categories.ts` | Not started | Values only — logic reads from these later. |
+| 0.1 | Init Next.js (App Router) + TypeScript project | Done | |
+| 0.2 | Add Tailwind CSS | Done | |
+| 0.3 | Set up Supabase project + Postgres connection | Done | Env vars in `.env.local`, not committed. Client + server clients created. |
+| 0.4 | Create base directory structure per [techstack.md](./techstack.md) §7 | Done | `/app`, `/lib/config`, `/lib/db`, `/lib/timer`, `/components` |
+| 0.5 | Create config files: `challengeModes.ts`, `publishConfig.ts`, `categories.ts` | Done | Values only — logic reads from these later. |
 
 **Exit criteria:** app boots locally, empty pages render, DB connection verified.
 
@@ -108,15 +108,16 @@ Goal: production-readiness of V1 scope (not new features).
 
 ## Open Decisions (resolve before/at the relevant phase)
 
-- [ ] TipTap vs. Lexical — final pick (blocks Phase 1.3).
+- [ ] TipTap vs. Lexical — final pick (blocks Phase 1.3). **Decision: TipTap** (installed and ready).
 - [ ] Exact definition of "longest continuous writing streak" (blocks Phase 1.9).
 - [ ] Reactions/comments: real feature or UI-only stub in V1 (affects Phase 3.6).
-- [ ] Supabase project provisioning owner/timing (blocks Phase 0.3).
+- [ ] Supabase project provisioning owner/timing — client code scaffolded, user needs to create project and fill `.env.local`.
 
 ## Change Log
 
 | Date | Change |
 |---|---|
+| 2026-08-21 | Phase 0 complete: Next.js + TypeScript + Tailwind initialized, Supabase client + queries scaffolded, config files created (challengeModes, publishConfig, categories), timer engine + hook created, base directory structure established, landing page renders. |
 | 2026-08-21 | Rewrote status.md into phased (0–4) structure for sequential implementation. |
 | 2026-08-21 | Initial docs generated from product prompt: prd.md, requirements.md, techstack.md, frontend.md, flow.md, status.md created. |
 

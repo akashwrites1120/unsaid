@@ -1,7 +1,14 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir=false --import-alias \"@/*\" --use-npm --no-turbo)"
+      "Bash(npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir=false --import-alias \"@/*\" --use-npm --no-turbo)",
+      "Bash(npm install *)",
+      "Bash(mkdir -p app/\\\\\\(marketing\\\\\\) app/write/setup app/write/challenge app/write/results app/feed app/feed/\\\\[id\\\\] app/api/writings app/api/writings/\\\\[id\\\\] lib/config lib/db lib/timer components/editor components/challenge components/feed)",
+      "Bash(npm run *)",
+      "Bash(curl -s http://localhost:3000)"
+    ],
+    "additionalDirectories": [
+      "D:\\PROJECTS\\just-started\\unsaid-project\\unsaid\\app\\feed"
     ]
   }
 }
