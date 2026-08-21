@@ -111,7 +111,7 @@ Detailed product and engineering docs live in [`docs/`](docs/):
 - [Tech Stack & Architecture](docs/techstack.md)
 - [Frontend Spec](docs/frontend.md)
 - [User Flow](docs/flow.md)
-- [Status](docs/status.md)
+
 
 ## Deployment
 
