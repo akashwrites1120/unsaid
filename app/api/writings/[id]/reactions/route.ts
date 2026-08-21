@@ -1,213 +1,124 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@/lib/supabase/server';
+import { checkRateLimit, getClientIp } from '@/lib/rateLimiter';
+import {
+  addReaction,
+  getReactionCounts,
+  reactionTypes,
+  removeReaction,
+  type ReactionType,
+} from '@/lib/db/queries';
 
-// Generate a simple session fingerprint for anonymous reaction tracking
-function generateSessionFingerprint(request: NextRequest): string {
-  const userAgent = request.headers.get('user-agent') || '';
-  const acceptLanguage = request.headers.get('accept-language') || '';
-  // Simple hash-like fingerprint (not cryptographic)
-  const combined = `${userAgent}|${acceptLanguage}|${request.nextUrl.origin}`;
-  let hash = 0;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Anonymous session fingerprint: a coarse hash of stable request headers.
+ * Deliberately non-identifying — it only prevents duplicate reactions from
+ * the same browser and stores nothing about the visitor.
+ */
+function sessionFingerprint(request: NextRequest): string {
+  const combined = [
+    request.headers.get('user-agent') ?? '',
+    request.headers.get('accept-language') ?? '',
+  ].join('|');
+
+  let hash = 5381;
   for (let i = 0; i < combined.length; i++) {
-    const char = combined.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
+    hash = (hash * 33) ^ combined.charCodeAt(i);
   }
-  return Math.abs(hash).toString(36);
+  return (hash >>> 0).toString(36);
+}
+
+function parseId(id: string): string | null {
+  return UUID_RE.test(id) ? id : null;
 }
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = createServerClient();
-
-    const { data, error } = await supabase
-      .from('writing_reactions')
-      .select('reaction_type')
-      .eq('writing_id', params.id);
-
-    if (error) {
-      console.error('Database error:', error);
-      return NextResponse.json(
-        { error: 'Failed to fetch reactions' },
-        { status: 500 }
-      );
+    const { id } = await params;
+    const writingId = parseId(id);
+    if (!writingId) {
+      return NextResponse.json({ error: 'Writing not found' }, { status: 404 });
     }
 
-    // Count reactions by type
-    const counts = {
-      heart: 0,
-      clap: 0,
-      mind_blown: 0,
-      relate: 0,
-      total: data.length,
-    };
-
-    data.forEach(reaction => {
-      if (counts[reaction.reaction_type as keyof typeof counts] !== undefined) {
-        counts[reaction.reaction_type as keyof typeof counts]++;
-      }
-    });
-
+    const counts = await getReactionCounts(writingId);
     return NextResponse.json({ counts });
   } catch (error) {
     console.error('Error fetching reactions:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to load reactions.' }, { status: 500 });
   }
 }
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const body = await request.json();
-    const { reactionType } = body;
-
-    if (!reactionType || !['heart', 'clap', 'mind_blown', 'relate'].includes(reactionType)) {
-      return NextResponse.json(
-        { error: 'Invalid reaction type' },
-        { status: 400 }
-      );
-    }
-
-    const supabase = createServerClient();
-    const sessionFingerprint = generateSessionFingerprint(request);
-
-    // Check if writing exists
-    const { data: writing, error: writingError } = await supabase
-      .from('public_writings')
-      .select('id')
-      .eq('id', params.id)
-      .single();
-
-    if (writingError || !writing) {
-      return NextResponse.json(
-        { error: 'Writing not found' },
-        { status: 404 }
-      );
-    }
-
-    // Upsert reaction (insert or update if exists)
-    const { data, error } = await supabase
-      .from('writing_reactions')
-      .upsert({
-        writing_id: params.id,
-        reaction_type: reactionType,
-        session_fingerprint: sessionFingerprint,
-      })
-      .select()
-      .single();
-
-    if (error) {
-      // Check if it's a duplicate key error
-      if (error.code === '23505') {
-        return NextResponse.json(
-          { error: 'Already reacted with this type' },
-          { status: 409 }
-        );
-      }
-      console.error('Database error:', error);
-      return NextResponse.json(
-        { error: 'Failed to add reaction' },
-        { status: 500 }
-      );
-    }
-
-    // Return updated counts
-    const { data: allReactions } = await supabase
-      .from('writing_reactions')
-      .select('reaction_type')
-      .eq('writing_id', params.id);
-
-    const counts = {
-      heart: 0,
-      clap: 0,
-      mind_blown: 0,
-      relate: 0,
-      total: allReactions?.length || 0,
-    };
-
-    allReactions?.forEach(reaction => {
-      if (counts[reaction.reaction_type as keyof typeof counts] !== undefined) {
-        counts[reaction.reaction_type as keyof typeof counts]++;
-      }
+    const rate = checkRateLimit(getClientIp(request), {
+      windowMs: 60_000,
+      maxRequests: 30,
+      keyPrefix: 'react',
     });
+    if (!rate.allowed) {
+      return NextResponse.json({ error: 'Slow down a little.' }, { status: 429 });
+    }
 
-    return NextResponse.json({ counts, reaction: data });
+    const { id } = await params;
+    const writingId = parseId(id);
+    if (!writingId) {
+      return NextResponse.json({ error: 'Writing not found' }, { status: 404 });
+    }
+
+    const body = await request.json().catch(() => null);
+    const reactionType = body?.reactionType as ReactionType | undefined;
+    if (!reactionType || !reactionTypes.includes(reactionType)) {
+      return NextResponse.json({ error: 'Invalid reaction type.' }, { status: 400 });
+    }
+
+    const result = await addReaction(writingId, reactionType, sessionFingerprint(request));
+    const counts = await getReactionCounts(writingId);
+
+    return NextResponse.json({ counts, result });
   } catch (error) {
     console.error('Error adding reaction:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to react.' }, { status: 500 });
   }
 }
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const body = await request.json();
-    const { reactionType } = body;
-
-    if (!reactionType || !['heart', 'clap', 'mind_blown', 'relate'].includes(reactionType)) {
-      return NextResponse.json(
-        { error: 'Invalid reaction type' },
-        { status: 400 }
-      );
-    }
-
-    const supabase = createServerClient();
-    const sessionFingerprint = generateSessionFingerprint(request);
-
-    const { error } = await supabase
-      .from('writing_reactions')
-      .delete()
-      .eq('writing_id', params.id)
-      .eq('reaction_type', reactionType)
-      .eq('session_fingerprint', sessionFingerprint);
-
-    if (error) {
-      console.error('Database error:', error);
-      return NextResponse.json(
-        { error: 'Failed to remove reaction' },
-        { status: 500 }
-      );
-    }
-
-    // Return updated counts
-    const { data: allReactions } = await supabase
-      .from('writing_reactions')
-      .select('reaction_type')
-      .eq('writing_id', params.id);
-
-    const counts = {
-      heart: 0,
-      clap: 0,
-      mind_blown: 0,
-      relate: 0,
-      total: allReactions?.length || 0,
-    };
-
-    allReactions?.forEach(reaction => {
-      if (counts[reaction.reaction_type as keyof typeof counts] !== undefined) {
-        counts[reaction.reaction_type as keyof typeof counts]++;
-      }
+    const rate = checkRateLimit(getClientIp(request), {
+      windowMs: 60_000,
+      maxRequests: 30,
+      keyPrefix: 'react',
     });
+    if (!rate.allowed) {
+      return NextResponse.json({ error: 'Slow down a little.' }, { status: 429 });
+    }
+
+    const { id } = await params;
+    const writingId = parseId(id);
+    if (!writingId) {
+      return NextResponse.json({ error: 'Writing not found' }, { status: 404 });
+    }
+
+    const body = await request.json().catch(() => null);
+    const reactionType = body?.reactionType as ReactionType | undefined;
+    if (!reactionType || !reactionTypes.includes(reactionType)) {
+      return NextResponse.json({ error: 'Invalid reaction type.' }, { status: 400 });
+    }
+
+    await removeReaction(writingId, reactionType, sessionFingerprint(request));
+    const counts = await getReactionCounts(writingId);
 
     return NextResponse.json({ counts });
   } catch (error) {
     console.error('Error removing reaction:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to remove reaction.' }, { status: 500 });
   }
 }

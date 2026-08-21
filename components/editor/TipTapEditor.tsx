@@ -1,100 +1,129 @@
 'use client';
 
-import { useEditor, EditorContent } from '@tiptap/react';
+/**
+ * Distraction-free writing surface.
+ *
+ * Activity detection (NFR-7 / Phase 4.1) is layered so unreliable mobile
+ * soft keyboards and IME composition can't cause unfair failures:
+ *   1. TipTap transaction updates (any doc change: typing, paste, IME commit)
+ *   2. Native `input` events captured at the wrapper (some Android IMEs fire
+ *      input without usable keydown values)
+ *   3. Composition start/end (CJK / IME flows)
+ *   4. keydown for printable + editing keys
+ *   5. paste (with a trailing tick so post-paste state settles)
+ * The challenge page additionally listens at window level as a final net.
+ */
+
+import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 interface TipTapEditorProps {
-  content: string;
-  onChange: (content: string) => void;
-  onActivity: () => void;
+  initialContent?: string;
+  onChange?: (html: string) => void;
+  /** Called on any writing-related user activity. */
+  onActivity?: () => void;
   placeholder?: string;
-  disabled?: boolean;
+  /** Locks the editor (used only after the run has ended). */
+  locked?: boolean;
 }
 
 export function TipTapEditor({
-  content,
+  initialContent = '',
   onChange,
   onActivity,
-  placeholder = 'Start writing...',
-  disabled = false,
+  placeholder = 'Start typing to begin the timer…',
+  locked = false,
 }: TipTapEditorProps) {
-  const [editorContent, setEditorContent] = useState(content);
-  const contentRef = useRef(content);
-  const isComposing = useRef(false);
-
-  // Sync content from props
+  // Refs keep listener callbacks stable without re-binding effects.
+  const onChangeRef = useRef(onChange);
+  const onActivityRef = useRef(onActivity);
   useEffect(() => {
-    if (content !== contentRef.current) {
-      contentRef.current = content;
-      setEditorContent(content);
-    }
-  }, [content]);
+    onChangeRef.current = onChange;
+    onActivityRef.current = onActivity;
+  }, [onChange, onActivity]);
 
   const editor = useEditor({
     extensions: [
-      StarterKit,
-      Placeholder.configure({
-        placeholder,
+      StarterKit.configure({
+        heading: false,
+        horizontalRule: false,
+        blockquote: false,
+        codeBlock: false,
       }),
+      Placeholder.configure({ placeholder }),
     ],
-    content: editorContent,
+    content: initialContent,
+    editable: !locked,
+    immediatelyRender: false,
     editorProps: {
       attributes: {
-        class: 'editor-content min-h-[400px] max-h-[60vh] p-6 focus:outline-none',
+        class: 'editor-content min-h-[52vh] outline-none',
         spellcheck: 'true',
+        autocorrect: 'off',
+        autocapitalize: 'sentences',
       },
     },
     onUpdate: ({ editor }) => {
-      const newContent = editor.getHTML();
-      if (newContent !== contentRef.current) {
-        contentRef.current = newContent;
-        setEditorContent(newContent);
-        onChange(newContent);
-      }
-    },
-    onTransaction: () => {
-      // This fires on every transaction including composition
-      if (!isComposing.current) {
-        onActivity();
-      }
+      onActivityRef.current?.();
+      onChangeRef.current?.(editor.getHTML());
     },
   });
 
-  // Handle composition events for IME input
-  const handleCompositionStart = useCallback(() => {
-    isComposing.current = true;
+  // Keep editability in sync without recreating the editor.
+  useEffect(() => {
+    if (editor && editor.isEditable === locked) {
+      editor.setEditable(!locked);
+    }
+  }, [editor, locked]);
+
+  // Native capture-phase listeners cover input paths React may miss on
+  // mobile (e.g. soft keyboards firing `input` without meaningful keys).
+  useEffect(() => {
+    const dom = editor?.view.dom;
+    if (!dom) return;
+
+    const fire = () => onActivityRef.current?.();
+
+    const handleKeydown = (e: Event) => {
+      const key = (e as KeyboardEvent).key;
+      if (key.length === 1 || key === 'Backspace' || key === 'Delete' || key === 'Enter') {
+        fire();
+      }
+    };
+    const handlePaste = () => setTimeout(fire, 0);
+
+    dom.addEventListener('input', fire, true);
+    dom.addEventListener('compositionstart', fire, true);
+    dom.addEventListener('compositionupdate', fire, true);
+    dom.addEventListener('compositionend', fire, true);
+    dom.addEventListener('keydown', handleKeydown, true);
+    dom.addEventListener('paste', handlePaste, true);
+    dom.addEventListener('cut', fire, true);
+
+    return () => {
+      dom.removeEventListener('input', fire, true);
+      dom.removeEventListener('compositionstart', fire, true);
+      dom.removeEventListener('compositionupdate', fire, true);
+      dom.removeEventListener('compositionend', fire, true);
+      dom.removeEventListener('keydown', handleKeydown, true);
+      dom.removeEventListener('paste', handlePaste, true);
+      dom.removeEventListener('cut', fire, true);
+    };
+  }, [editor]);
+
+  const handleWrapperPaste = useCallback(() => {
+    setTimeout(() => onActivityRef.current?.(), 0);
   }, []);
 
-  const handleCompositionEnd = useCallback(() => {
-    isComposing.current = false;
-    onActivity();
-  }, [onActivity]);
-
-  // Handle paste
-  const handlePaste = useCallback((e: React.ClipboardEvent) => {
-    onActivity();
-  }, [onActivity]);
-
-  // Handle keydown for additional activity detection
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    // Any keydown counts as activity
-    onActivity();
-  }, [onActivity]);
-
-  if (!editor) {
-    return null;
-  }
-
   return (
-    <EditorContent
-      editor={editor}
-      onCompositionStart={handleCompositionStart}
-      onCompositionEnd={handleCompositionEnd}
-      onPaste={handlePaste}
-      onKeyDown={handleKeyDown}
-      disabled={disabled}
-    />
+    <div
+      onPaste={handleWrapperPaste}
+      data-testid="writing-editor"
+      className="h-full"
+    >
+      <EditorContent editor={editor} />
+    </div>
   );
 }

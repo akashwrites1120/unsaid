@@ -33,7 +33,7 @@ export function createInactivityTimer(options: TimerOptions) {
   const { thresholdMs, callbacks = {} } = options;
   const { onTick, onFail, onStatusChange } = callbacks;
 
-  let state: TimerState = {
+  const state: TimerState = {
     status: 'idle',
     remainingMs: thresholdMs,
     elapsedMs: 0,

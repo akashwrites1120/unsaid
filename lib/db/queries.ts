@@ -1,98 +1,113 @@
 /**
- * Database Queries
- * All database operations for public writings.
+ * Data-access layer for public writings and reactions.
+ *
+ * Every database read/write in the app funnels through this module so that
+ * auth, moderation hooks (NFR-8), or rate-limit policies can be introduced
+ * centrally later without rewriting API routes or pages.
+ *
+ * Anonymity note: rows are always inserted with `author_id: null`. When
+ * authentication is added (post-V1), this is the single place to start
+ * populating it — no schema rewrite required.
  */
 
-import { createServerClient } from './supabase';
+import { getServerSupabase } from './supabase';
 import type { CategoryKey, ChallengeModeKey } from '@/lib/config';
 
-export interface PublicWriting {
+const WRITING_COLUMNS = 'id, content, word_count, category, challenge_mode, challenge_duration, created_at';
+
+export interface PublicWritingRow {
   id: string;
   content: string;
   word_count: number;
   category: CategoryKey;
   challenge_mode: ChallengeModeKey;
-  challenge_duration: number; // seconds
+  challenge_duration: number; // milliseconds
   created_at: string;
+}
+
+export interface PublicWritingWithReactions extends PublicWritingRow {
+  total_reactions: number;
 }
 
 export interface CreateWritingInput {
   content: string;
-  word_count: number;
+  wordCount: number;
   category: CategoryKey;
-  challenge_mode: ChallengeModeKey;
-  challenge_duration: number;
+  challengeMode: ChallengeModeKey;
+  challengeDuration: number;
+  /**
+   * Reserved for post-V1 auth. Always null in V1 — anonymous publishing.
+   */
+  authorId?: string | null;
 }
 
 export interface WritingListParams {
   sort?: 'recent' | 'popular';
-  category?: CategoryKey;
+  category?: CategoryKey | null;
   limit?: number;
   offset?: number;
 }
 
+export type ReactionType = 'heart' | 'clap' | 'mind_blown' | 'relate';
+
+export const reactionTypes: ReactionType[] = ['heart', 'clap', 'mind_blown', 'relate'];
+
 /**
- * Insert a new public writing
+ * Insert a published writing. Returns the created row's id + timestamp.
  */
 export async function createPublicWriting(
   input: CreateWritingInput
-): Promise<PublicWriting> {
-  const supabase = createServerClient();
+): Promise<{ id: string; createdAt: string }> {
+  const supabase = getServerSupabase();
 
   const { data, error } = await supabase
     .from('public_writings')
     .insert({
       content: input.content,
-      word_count: input.word_count,
+      word_count: input.wordCount,
       category: input.category,
-      challenge_mode: input.challenge_mode,
-      challenge_duration: input.challenge_duration,
+      challenge_mode: input.challengeMode,
+      challenge_duration: input.challengeDuration,
+      author_id: input.authorId ?? null,
     })
-    .select()
+    .select('id, created_at')
     .single();
 
-  if (error) {
-    throw new Error(`Failed to create writing: ${error.message}`);
-  }
+  if (error) throw new Error(`Failed to create writing: ${error.message}`);
 
-  return data;
+  return { id: data.id, createdAt: data.created_at };
 }
 
 /**
- * Get a single public writing by ID
+ * Fetch a single writing by id. Returns null when not found.
  */
-export async function getPublicWriting(id: string): Promise<PublicWriting | null> {
-  const supabase = createServerClient();
+export async function getPublicWriting(id: string): Promise<PublicWritingRow | null> {
+  const supabase = getServerSupabase();
 
   const { data, error } = await supabase
     .from('public_writings')
-    .select()
+    .select(WRITING_COLUMNS)
     .eq('id', id)
-    .single();
+    .maybeSingle();
 
-  if (error) {
-    if (error.code === 'PGRST116') {
-      return null; // Not found
-    }
-    throw new Error(`Failed to get writing: ${error.message}`);
-  }
-
-  return data;
+  if (error) throw new Error(`Failed to fetch writing: ${error.message}`);
+  return (data as PublicWritingRow) ?? null;
 }
 
 /**
- * Get paginated list of public writings
+ * List writings with reaction totals. Uses the aggregated view for both sorts
+ * so every row carries a correct `total_reactions` value.
  */
-export async function getPublicWritings(
+export async function listPublicWritings(
   params: WritingListParams = {}
-): Promise<PublicWriting[]> {
-  const supabase = createServerClient();
+): Promise<PublicWritingWithReactions[]> {
+  const supabase = getServerSupabase();
   const { sort = 'recent', category, limit = 20, offset = 0 } = params;
 
   let query = supabase
-    .from('public_writings')
-    .select()
-    .order(sort === 'recent' ? 'created_at' : 'word_count', { ascending: false })
+    .from('public_writings_with_reactions')
+    .select(`${WRITING_COLUMNS}, total_reactions`)
+    .order(sort === 'popular' ? 'total_reactions' : 'created_at', { ascending: false })
     .range(offset, offset + limit - 1);
 
   if (category) {
@@ -101,32 +116,120 @@ export async function getPublicWritings(
 
   const { data, error } = await query;
 
-  if (error) {
-    throw new Error(`Failed to get writings: ${error.message}`);
-  }
-
-  return data ?? [];
+  if (error) throw new Error(`Failed to list writings: ${error.message}`);
+  return (data as PublicWritingWithReactions[]) ?? [];
 }
 
 /**
- * Get total count of public writings (for pagination)
+ * Total count of published writings, optionally filtered by category.
  */
-export async function getPublicWritingsCount(category?: CategoryKey): Promise<number> {
-  const supabase = createServerClient();
+export async function countPublicWritings(category?: CategoryKey | null): Promise<number> {
+  const supabase = getServerSupabase();
 
   let query = supabase
     .from('public_writings')
-    .select('*', { count: 'exact', head: true });
+    .select('id', { count: 'exact', head: true });
 
   if (category) {
     query = query.eq('category', category);
   }
 
   const { count, error } = await query;
+  if (error) throw new Error(`Failed to count writings: ${error.message}`);
+  return count ?? 0;
+}
+
+export interface ReactionCounts {
+  heart: number;
+  clap: number;
+  mind_blown: number;
+  relate: number;
+  total: number;
+}
+
+function emptyCounts(): ReactionCounts {
+  return { heart: 0, clap: 0, mind_blown: 0, relate: 0, total: 0 };
+}
+
+function tallyCounts(rows: { reaction_type: string }[]): ReactionCounts {
+  const counts = emptyCounts();
+  for (const row of rows) {
+    if ((reactionTypes as string[]).includes(row.reaction_type)) {
+      counts[row.reaction_type as ReactionType] += 1;
+      counts.total += 1;
+    }
+  }
+  return counts;
+}
+
+/**
+ * Aggregate reaction counts for one writing.
+ */
+export async function getReactionCounts(writingId: string): Promise<ReactionCounts> {
+  const supabase = getServerSupabase();
+
+  const { data, error } = await supabase
+    .from('writing_reactions')
+    .select('reaction_type')
+    .eq('writing_id', writingId);
+
+  if (error) throw new Error(`Failed to fetch reactions: ${error.message}`);
+  return tallyCounts(data ?? []);
+}
+
+/**
+ * Add a reaction for an anonymous session fingerprint.
+ * Returns 'duplicate' when this session already reacted with that type.
+ */
+export async function addReaction(
+  writingId: string,
+  reactionType: ReactionType,
+  sessionFingerprint: string
+): Promise<'added' | 'duplicate'> {
+  const supabase = getServerSupabase();
+  const match = {
+    writing_id: writingId,
+    reaction_type: reactionType,
+    session_fingerprint: sessionFingerprint,
+  };
+
+  const { data: existing } = await supabase
+    .from('writing_reactions')
+    .select('id')
+    .match(match)
+    .maybeSingle();
+
+  if (existing) return 'duplicate';
+
+  const { error } = await supabase.from('writing_reactions').insert(match);
 
   if (error) {
-    throw new Error(`Failed to count writings: ${error.message}`);
+    // Lost a race against a concurrent identical insert — treat as duplicate.
+    if (error.code === '23505') return 'duplicate';
+    throw new Error(`Failed to add reaction: ${error.message}`);
   }
 
-  return count ?? 0;
+  return 'added';
+}
+
+/**
+ * Remove a reaction for an anonymous session fingerprint.
+ */
+export async function removeReaction(
+  writingId: string,
+  reactionType: ReactionType,
+  sessionFingerprint: string
+): Promise<void> {
+  const supabase = getServerSupabase();
+
+  const { error } = await supabase
+    .from('writing_reactions')
+    .delete()
+    .match({
+      writing_id: writingId,
+      reaction_type: reactionType,
+      session_fingerprint: sessionFingerprint,
+    });
+
+  if (error) throw new Error(`Failed to remove reaction: ${error.message}`);
 }

@@ -1,5 +1,6 @@
 -- Create public_writings table for anonymous published writings
 -- This table stores only the content and metadata, no identifying information
+-- Designed to be auth-ready: nullable author_id can be added later
 
 CREATE TABLE public_writings (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -8,7 +9,9 @@ CREATE TABLE public_writings (
   category text NOT NULL CHECK (category IN ('thoughts', 'stories', 'journal', 'academic', 'confession', 'ideas', 'other')),
   challenge_mode text NOT NULL CHECK (challenge_mode IN ('soft', 'focus', 'hard')),
   challenge_duration integer NOT NULL,
-  created_at timestamptz DEFAULT now()
+  created_at timestamptz DEFAULT now(),
+  -- Reserved for future authentication implementation (nullable for backward compatibility)
+  author_id uuid NULL
 );
 
 -- Create indexes for better query performance

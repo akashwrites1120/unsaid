@@ -1,42 +1,45 @@
 /**
  * Draft Storage
- * IndexedDB-based local persistence for writing drafts.
- * Provides debounced autosave and session restoration.
+ * IndexedDB-based local persistence for writing drafts plus the shared
+ * sessionStorage contract between setup → challenge → results pages.
+ *
+ * Writing content is never deleted here — drafts survive failure, refresh,
+ * and navigation (NFR-2).
  */
 
-const DB_NAME = 'write-or-lose';
-const DB_VERSION = 1;
-const STORE_NAME = 'drafts';
+import type { CategoryKey, ChallengeModeKey } from '@/lib/config';
 
-interface Draft {
+export type DraftStatus = 'draft' | 'published' | 'failed' | 'completed';
+
+export interface Draft {
   id: string;
   topic: string;
   content: string;
-  mode: string;
+  mode: ChallengeModeKey;
+  category: CategoryKey;
   wordCount: number;
   elapsedTime: number;
   updatedAt: number;
-  status: 'draft' | 'published' | 'failed' | 'completed';
+  status: DraftStatus;
 }
 
-export interface SessionData {
+/**
+ * The live session blob shared across the write flow via sessionStorage.
+ * `elapsedMs` is accumulated active time; results reads it for stats.
+ */
+export interface WritingSession {
   topic: string;
-  mode: string;
-  category: string;
-  startTime: number;
+  mode: ChallengeModeKey;
+  category: CategoryKey;
+  startedAt: number;
+  elapsedMs: number;
   content: string;
-}
-
-interface Draft {
-  id: string;
-  topic: string;
-  content: string;
-  mode: string;
   wordCount: number;
-  elapsedTime: number;
-  updatedAt: number;
-  status: 'draft' | 'published' | 'failed' | 'completed';
+  longestStreakMs: number;
+  status: 'writing' | 'completed' | 'failed';
 }
+
+const SESSION_KEY = 'writing-session';
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -44,15 +47,15 @@ function getDB(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise;
 
   dbPromise = new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    const request = indexedDB.open('write-or-lose', 1);
 
     request.onerror = () => reject(request.error);
     request.onsuccess = () => resolve(request.result);
 
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('drafts')) {
+        const store = db.createObjectStore('drafts', { keyPath: 'id' });
         store.createIndex('updatedAt', 'updatedAt', { unique: false });
       }
     };
@@ -61,50 +64,35 @@ function getDB(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
-/**
- * Save a draft to IndexedDB
- */
+/** Save a draft to IndexedDB. */
 export async function saveDraft(draft: Omit<Draft, 'updatedAt'>): Promise<void> {
   const db = await getDB();
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction(STORE_NAME, 'readwrite');
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.put({
-      ...draft,
-      updatedAt: Date.now(),
-    });
+    const transaction = db.transaction('drafts', 'readwrite');
+    const request = transaction.objectStore('drafts').put({ ...draft, updatedAt: Date.now() });
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
 }
 
-/**
- * Get a draft by ID
- */
+/** Get a draft by ID. */
 export async function getDraft(id: string): Promise<Draft | null> {
   const db = await getDB();
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction(STORE_NAME, 'readonly');
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.get(id);
-    request.onsuccess = () => resolve(request.result || null);
+    const request = db.transaction('drafts', 'readonly').objectStore('drafts').get(id);
+    request.onsuccess = () => resolve(request.result ?? null);
     request.onerror = () => reject(request.error);
   });
 }
 
-/**
- * Get all drafts, sorted by most recent first
- */
+/** All drafts, most recent first. */
 export async function getAllDrafts(): Promise<Draft[]> {
   const db = await getDB();
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction(STORE_NAME, 'readonly');
-    const store = transaction.objectStore(STORE_NAME);
-    const index = store.index('updatedAt');
+    const index = db.transaction('drafts', 'readonly').objectStore('drafts').index('updatedAt');
     const request = index.getAll();
     request.onsuccess = () => {
-      const drafts = request.result || [];
-      // Sort by most recent first
+      const drafts = (request.result as Draft[]) ?? [];
       drafts.sort((a, b) => b.updatedAt - a.updatedAt);
       resolve(drafts);
     };
@@ -112,90 +100,60 @@ export async function getAllDrafts(): Promise<Draft[]> {
   });
 }
 
-/**
- * Delete a draft
- */
+/** Delete a draft by ID. */
 export async function deleteDraft(id: string): Promise<void> {
   const db = await getDB();
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction(STORE_NAME, 'readwrite');
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.delete(id);
+    const request = db.transaction('drafts', 'readwrite').objectStore('drafts').delete(id);
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
 }
 
-/**
- * Clear all drafts
- */
-export async function clearAllDrafts(): Promise<void> {
-  const db = await getDB();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction(STORE_NAME, 'readwrite');
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.clear();
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
-  });
-}
-
-/**
- * Create a debounced save function
- */
+/** Create a debounced autosave function. */
 export function createDebouncedSave(
   getDraftData: () => Omit<Draft, 'updatedAt'> | null,
-  delayMs: number = 2000
+  delayMs = 1500
 ): () => void {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
   return () => {
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-    }
-    timeoutId = setTimeout(async () => {
+    if (timeoutId) clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => {
       const draftData = getDraftData();
       if (draftData) {
-        try {
-          await saveDraft(draftData);
-        } catch (error) {
+        saveDraft(draftData).catch((error) => {
           console.error('Failed to save draft:', error);
-        }
+        });
       }
     }, delayMs);
   };
 }
 
-/**
- * Save current session to sessionStorage (for immediate restore on refresh)
- */
-export function saveSessionToStorage(session: SessionData): void {
+/** Persist the live session blob (called on every meaningful change). */
+export function saveSessionToStorage(session: WritingSession): void {
   try {
-    sessionStorage.setItem('writing-session', JSON.stringify(session));
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
   } catch (error) {
     console.error('Failed to save session:', error);
   }
 }
 
-/**
- * Load session from sessionStorage
- */
-export function loadSessionFromStorage(): SessionData | null {
+/** Read the live session blob, or null when absent/corrupt. */
+export function loadSessionFromStorage(): WritingSession | null {
   try {
-    const saved = sessionStorage.getItem('writing-session');
-    return saved ? JSON.parse(saved) : null;
+    const saved = sessionStorage.getItem(SESSION_KEY);
+    return saved ? (JSON.parse(saved) as WritingSession) : null;
   } catch (error) {
     console.error('Failed to load session:', error);
     return null;
   }
 }
 
-/**
- * Clear session from sessionStorage
- */
+/** Remove the session blob (after publishing or abandoning). */
 export function clearSessionFromStorage(): void {
   try {
-    sessionStorage.removeItem('writing-session');
+    sessionStorage.removeItem(SESSION_KEY);
   } catch (error) {
     console.error('Failed to clear session:', error);
   }

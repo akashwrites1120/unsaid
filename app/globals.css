@@ -1,119 +1,219 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #1a1a1a;
-  --muted: #f3f4f6;
-  --muted-foreground: #6b7280;
-  --border: #e5e7eb;
-  --ring: #6b7280;
+  --paper: #fafaf8;
+  --surface: #ffffff;
+  --ink: #1c1917;
+  --ink-soft: #44403c;
+  --ink-muted: #57534e;
+  --ink-faint: #a8a29e;
+  --line: #e7e5e4;
+  --line-strong: #d6d3d1;
+  --accent: #b91c1c;
+  --accent-soft: #fef2f2;
+  --ok: #15803d;
+  --warn: #b45309;
+
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --border: var(--line);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-border: var(--border);
-  --color-ring: var(--ring);
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", serif;
 }
 
 * {
-  border-color: var(--border);
+  border-color: var(--line);
+}
+
+html {
+  color-scheme: light;
 }
 
 body {
-  background: var(--background);
+  background: var(--paper);
   color: var(--foreground);
   font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-/* Custom scrollbar for webkit */
+/* ---------- Focus visibility (accessibility) ---------- */
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* ---------- Selection ---------- */
+::selection {
+  background: #1c1917;
+  color: #fafaf8;
+}
+
+/* ---------- Scrollbar ---------- */
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 10px;
   height: 8px;
 }
-
 ::-webkit-scrollbar-track {
-  background: var(--background);
+  background: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
-  background: var(--muted);
-  border-radius: 4px;
+  background: var(--line-strong);
+  border-radius: 999px;
+  border: 3px solid var(--paper);
 }
-
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--muted-foreground);
+  background: var(--ink-faint);
 }
 
-/* Selection colors */
-::selection {
-  background: rgba(107, 114, 128, 0.3);
-  color: var(--foreground);
-}
-
-/* Focus visible for accessibility */
-:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
-}
-
-/* Tabular numerals for countdown */
+/* ---------- Numeric displays ---------- */
 .tabular-nums {
   font-variant-numeric: tabular-nums;
-  font-family: var(--font-mono), monospace;
 }
 
-/* Editor styles */
+/* ---------- Editor (writing surface) ---------- */
 .editor-content {
+  font-family: var(--font-serif), Georgia, serif;
+  font-size: 1.125rem;
+  line-height: 1.8;
   max-width: none;
 }
 
-.editor-content:focus {
+.editor-content:focus,
+.editor-content:focus-visible {
   outline: none;
 }
 
 .editor-content p {
-  margin-bottom: 1rem;
-  font-size: 1.125rem;
-  line-height: 1.75;
+  margin-bottom: 0.9em;
 }
-
 .editor-content p:last-child {
   margin-bottom: 0;
 }
 
 .editor-content strong {
-  font-weight: 600;
+  font-weight: 650;
 }
-
 .editor-content em {
   font-style: italic;
 }
 
-/* Animations */
+/* Placeholder (TipTap) */
+.editor-content p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: var(--ink-faint);
+  font-style: normal;
+}
+
+/* ---------- Reading view (published writing) ---------- */
+.prose-reading {
+  font-family: var(--font-serif), Georgia, serif;
+  font-size: 1.1875rem;
+  line-height: 1.85;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* ---------- Animations ---------- */
 @keyframes pulse-urgent {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 1;
   }
   50% {
-    opacity: 0.5;
+    opacity: 0.45;
   }
 }
 
 @keyframes shake {
-  0%, 100% { transform: translateX(0); }
-  10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
-  20%, 40%, 60%, 80% { transform: translateX(2px); }
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  15%,
+  45%,
+  75% {
+    transform: translateX(-4px);
+  }
+  30%,
+  60%,
+  90% {
+    transform: translateX(4px);
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .animate-pulse-urgent {
-  animation: pulse-urgent 0.5s ease-in-out infinite;
+  animation: pulse-urgent 0.9s ease-in-out infinite;
 }
 
 .animate-shake {
-  animation: shake 0.5s ease-in-out;
+  animation: shake 0.4s ease-in-out;
+}
+
+.animate-fade-up {
+  animation: fade-up 0.35s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse-urgent,
+  .animate-shake,
+  .animate-fade-up {
+    animation: none;
+  }
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------- Skip link ---------- */
+.skip-link {
+  position: absolute;
+  top: -48px;
+  left: 16px;
+  z-index: 100;
+  padding: 10px 16px;
+  background: var(--ink);
+  color: var(--paper);
+  border-radius: 8px;
+  font-size: 14px;
+  transition: top 0.15s ease;
+}
+.skip-link:focus {
+  top: 12px;
 }

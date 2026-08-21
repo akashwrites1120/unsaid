@@ -1,35 +1,40 @@
 /**
- * Supabase Client
- * Server-side and client-side clients for database operations.
+ * Supabase clients.
+ *
+ * Server client (service role): used exclusively by the data-access layer in
+ * `lib/db/queries.ts`. Never import this directly from UI components.
+ *
+ * Auth-readiness (NFR-5 / techstack.md §5): all writes go through
+ * `lib/db/queries.ts`, so when authentication lands, an author identity and
+ * ownership checks can be inserted centrally without touching API routes.
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables');
-}
+let serverClient: SupabaseClient | null = null;
 
 /**
- * Client-side Supabase client (for use in React components)
+ * Server-side client using the service-role key. Lazy so that importing this
+ * module never throws at build time when env vars are absent.
  */
-export const createBrowserClient = () => {
-  return createClient(supabaseUrl, supabaseAnonKey);
-};
+export function getServerSupabase(): SupabaseClient {
+  if (serverClient) return serverClient;
 
-/**
- * Server-side Supabase client (for use in API routes, server actions)
- */
-export const createServerClient = () => {
-  return createClient(supabaseUrl, supabaseAnonKey, {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !serviceKey) {
+    throw new Error(
+      'Missing Supabase configuration. Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.'
+    );
+  }
+
+  serverClient = createClient(url, serviceKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
     },
   });
-};
 
-// Export a default instance for convenience (browser only)
-export const supabase = typeof window !== 'undefined' ? createBrowserClient() : null;
+  return serverClient;
+}

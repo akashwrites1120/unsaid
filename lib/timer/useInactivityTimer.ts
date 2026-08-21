@@ -1,22 +1,25 @@
 /**
- * React Hook for Inactivity Timer
- * Provides a React-friendly interface to the timer logic.
+ * React Hook for Inactivity Timer.
+ *
+ * The underlying timer instance is created once per threshold and callbacks
+ * are kept in refs so changing handler identities never restart the
+ * countdown. State is polled at 100ms — sub-second granularity without a
+ * re-render per animation frame (NFR-6).
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { TimerState, TimerStatus } from './inactivityTimer';
-import { createInactivityTimer, formatTime, formatElapsed } from './inactivityTimer';
+import type { TimerState } from './inactivityTimer';
+import { createInactivityTimer } from './inactivityTimer';
 
 export interface UseInactivityTimerOptions {
+  /** 0 disables the timer entirely (used before the session hydrates). */
   thresholdMs: number;
   onFail?: () => void;
-  onStatusChange?: (status: TimerStatus) => void;
 }
 
 export interface UseInactivityTimerReturn {
   state: TimerState;
   formattedRemaining: string;
-  formattedElapsed: string;
   start: () => void;
   pause: () => void;
   stop: () => void;
@@ -24,85 +27,101 @@ export interface UseInactivityTimerReturn {
   activity: () => void;
 }
 
+const IDLE_STATE: TimerState = {
+  status: 'idle',
+  remainingMs: 0,
+  elapsedMs: 0,
+  totalPausedMs: 0,
+  lastResetAt: null,
+};
+
 export function useInactivityTimer(
   options: UseInactivityTimerOptions
 ): UseInactivityTimerReturn {
-  const { thresholdMs, onFail, onStatusChange } = options;
-  const timerRef = useRef<ReturnType<typeof createInactivityTimer> | null>(null);
-  const [state, setState] = useState<TimerState>({
-    status: 'idle',
-    remainingMs: thresholdMs,
-    elapsedMs: 0,
-    totalPausedMs: 0,
-    lastResetAt: null,
-  });
+  const { thresholdMs, onFail } = options;
 
-  // Initialize timer
+  const timerRef = useRef<ReturnType<typeof createInactivityTimer> | null>(null);
+  const onFailRef = useRef(onFail);
+
+  const [state, setState] = useState<TimerState>(IDLE_STATE);
+
+  // Keep the latest failure callback without re-creating the timer.
   useEffect(() => {
-    timerRef.current = createInactivityTimer({
+    onFailRef.current = onFail;
+  }, [onFail]);
+
+  // Create the timer once per threshold.
+  useEffect(() => {
+    if (thresholdMs <= 0) {
+      timerRef.current = null;
+      return;
+    }
+
+    const timer = createInactivityTimer({
       thresholdMs,
       callbacks: {
-        onTick: (remainingMs) => {
-          setState((prev) => ({ ...prev, remainingMs }));
-        },
         onFail: () => {
-          setState((prev) => ({ ...prev, status: 'failed', remainingMs: 0 }));
-          onFail?.();
-        },
-        onStatusChange: (status) => {
-          setState((prev) => ({ ...prev, status }));
-          onStatusChange?.(status);
+          setState({ ...timer.getState(), status: 'failed', remainingMs: 0 });
+          onFailRef.current?.();
         },
       },
     });
+    timerRef.current = timer;
 
     return () => {
-      timerRef.current?.destroy();
+      timer.destroy();
+      if (timerRef.current === timer) timerRef.current = null;
     };
-  }, [thresholdMs, onFail, onStatusChange]);
+  }, [thresholdMs]);
+
+  // Poll engine state while running for a smooth but cheap countdown.
+  useEffect(() => {
+    if (state.status !== 'running') return;
+
+    const interval = setInterval(() => {
+      const current = timerRef.current?.getState();
+      if (current) setState(current);
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, [state.status]);
 
   const start = useCallback(() => {
     timerRef.current?.start();
+    if (timerRef.current) setState(timerRef.current.getState());
   }, []);
 
   const pause = useCallback(() => {
     timerRef.current?.pause();
+    if (timerRef.current) setState(timerRef.current.getState());
   }, []);
 
   const stop = useCallback(() => {
     timerRef.current?.stop();
+    if (timerRef.current) setState(timerRef.current.getState());
   }, []);
 
   const reset = useCallback(() => {
     timerRef.current?.reset();
+    if (timerRef.current) setState(timerRef.current.getState());
   }, []);
 
   const activity = useCallback(() => {
     timerRef.current?.activity();
   }, []);
 
-  // Update elapsed time in state when running
-  useEffect(() => {
-    if (!timerRef.current || state.status !== 'running') return;
-
-    const interval = setInterval(() => {
-      const currentState = timerRef.current?.getState();
-      if (currentState) {
-        setState(currentState);
-      }
-    }, 100); // Update more frequently for smooth countdown
-
-    return () => clearInterval(interval);
-  }, [state.status]);
-
   return {
     state,
-    formattedRemaining: formatTime(state.remainingMs),
-    formattedElapsed: formatElapsed(state.elapsedMs),
+    formattedRemaining: formatRemaining(state.remainingMs),
     start,
     pause,
     stop,
     reset,
     activity,
   };
+}
+
+/** Whole seconds remaining, e.g. "12". */
+function formatRemaining(ms: number): string {
+  return String(Math.max(0, Math.ceil(ms / 1000)));
 }

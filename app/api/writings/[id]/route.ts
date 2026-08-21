@@ -1,50 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@/lib/supabase/server';
+import { getPublicWriting } from '@/lib/db/queries';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = createServerClient();
+    const { id } = await params;
 
-    const { data, error } = await supabase
-      .from('public_writings')
-      .select('id, content, word_count, category, challenge_mode, challenge_duration, created_at')
-      .eq('id', params.id)
-      .single();
-
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return NextResponse.json(
-          { error: 'Writing not found' },
-          { status: 404 }
-        );
-      }
-      console.error('Database error:', error);
-      return NextResponse.json(
-        { error: 'Failed to fetch writing' },
-        { status: 500 }
-      );
+    if (!UUID_RE.test(id)) {
+      return NextResponse.json({ error: 'Writing not found' }, { status: 404 });
     }
 
-    // Format the response
-    const writing = {
-      id: data.id,
-      content: data.content,
-      wordCount: data.word_count,
-      category: data.category,
-      challengeMode: data.challenge_mode,
-      challengeDuration: data.challenge_duration,
-      createdAt: data.created_at,
-    };
+    const row = await getPublicWriting(id);
 
-    return NextResponse.json(writing);
+    if (!row) {
+      return NextResponse.json({ error: 'Writing not found' }, { status: 404 });
+    }
 
+    return NextResponse.json({
+      id: row.id,
+      content: row.content,
+      wordCount: row.word_count,
+      category: row.category,
+      challengeMode: row.challenge_mode,
+      challengeDuration: row.challenge_duration,
+      createdAt: row.created_at,
+    });
   } catch (error) {
     console.error('Error fetching writing:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Failed to load writing.' },
       { status: 500 }
     );
   }

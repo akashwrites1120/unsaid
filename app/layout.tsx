@@ -13,19 +13,24 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Write-or-Lose | Stop Procrastinating. Start Writing.",
+  title: {
+    default: "Write or Lose — Keep writing, or lose it all",
+    template: "%s · Write or Lose",
+  },
   description:
-    "A writing challenge that forces you to keep writing. Pick a topic, choose a mode, and don't stop typing — or you lose. Your writing is never deleted.",
+    "A writing challenge that forces you to keep writing. Pick a topic, choose your pressure, and don't stop typing — or you lose. Your words are never deleted.",
   openGraph: {
-    title: "Write-or-Lose | Stop Procrastinating. Start Writing.",
+    title: "Write or Lose — Keep writing, or lose it all",
     description:
-      "A writing challenge that forces you to keep writing. Pick a topic, choose a mode, and don't stop typing — or you lose.",
+      "A writing challenge that forces you to keep writing. Don't stop typing — or you lose.",
     type: "website",
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0a0a0a",
+  themeColor: "#fafaf8",
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default function RootLayout({
@@ -37,7 +42,10 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
       suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col bg-black text-white">
+      <body className="flex min-h-full flex-col bg-paper text-ink">
+        <a href="#main-content" className="skip-link">
+          Skip to content
+        </a>
         {children}
       </body>
     </html>

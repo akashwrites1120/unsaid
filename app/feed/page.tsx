@@ -1,203 +1,300 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { categories, type CategoryKey } from '@/lib/config/categories';
-import { formatDistanceToNow } from 'date-fns';
-import { zhCN } from 'date-fns/locale';
+/**
+ * Public feed of anonymously published writings.
+ */
 
-interface Writing {
+import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
+import { categories, categoryOrder } from '@/lib/config/categories';
+import { getChallengeMode, type ChallengeModeKey } from '@/lib/config/challengeModes';
+import { formatDistanceToNow } from 'date-fns';
+
+interface FeedWriting {
   id: string;
-  content: string;
+  excerpt: string;
   wordCount: number;
-  category: CategoryKey;
-  challengeMode: string;
+  category: keyof typeof categories;
+  challengeMode: ChallengeModeKey;
   challengeDuration: number;
   createdAt: string;
-  excerpt: string;
-  reactionCount?: number;
+  reactionCount: number;
 }
 
-type SortOption = 'recent' | 'popular';
+interface Pagination {
+  page: number;
+  total: number;
+  totalPages: number;
+  hasMore: boolean;
+}
+
+type Sort = 'recent' | 'popular';
 
 export default function FeedPage() {
-  const [writings, setWritings] = useState<Writing[]>([]);
+  const [writings, setWritings] = useState<FeedWriting[]>([]);
+  const [pagination, setPagination] = useState<Pagination | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedCategory, setSelectedCategory] = useState<CategoryKey | null>(null);
-  const [sort, setSort] = useState<SortOption>('recent');
-  const [currentPage, setCurrentPage] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sort, setSort] = useState<Sort>('recent');
+  const [category, setCategory] = useState<string | null>(null);
+
+  const pageRef = useRef(1);
+  const requestIdRef = useRef(0);
+
+  const load = useCallback(
+    async (page: number, append: boolean) => {
+      const requestId = ++requestIdRef.current;
+
+      try {
+        const params = new URLSearchParams({ page: String(page), limit: '12', sort });
+        if (category) params.set('category', category);
+
+        const response = await fetch(`/api/writings?${params.toString()}`);
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.error || 'Failed to load writings.');
+        }
+
+        // Everything below runs after an await boundary.
+        if (requestId !== requestIdRef.current) return; // stale response
+
+        const data = await response.json();
+        setWritings((prev) => (append ? [...prev, ...data.writings] : data.writings));
+        setPagination(data.pagination);
+        setError(null);
+        setLoading(false);
+        setLoadingMore(false);
+        pageRef.current = page;
+      } catch (err) {
+        if (requestId !== requestIdRef.current) return;
+        setError(err instanceof Error ? err.message : 'Failed to load writings.');
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    },
+    [sort, category]
+  );
 
   useEffect(() => {
-    fetchWritings();
-  }, [selectedCategory, sort, currentPage]);
+    load(1, false);
+  }, [load]);
 
-  const fetchWritings = async () => {
-    try {
-      setLoading(true);
-      const params = new URLSearchParams({
-        page: currentPage.toString(),
-        limit: '20',
-        sort,
-      });
-
-      if (selectedCategory) {
-        params.append('category', selectedCategory);
-      }
-
-      const response = await fetch(`/api/writings?${params}`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch writings');
-      }
-
-      const data = await response.json();
-      setWritings(data.writings);
-    } catch (error) {
-      console.error('Error fetching writings:', error);
-    } finally {
-      setLoading(false);
-    }
+  /** Filter/sort switches start from click handlers (event context). */
+  const changeSort = (next: Sort) => {
+    if (next === sort) return;
+    setLoading(true);
+    setWritings([]);
+    setSort(next);
   };
 
-  const categoryCount = (category: CategoryKey) => {
-    return writings.filter(w => w.category === category).length;
+  const changeCategory = (next: string | null) => {
+    if (next === category) return;
+    setLoading(true);
+    setWritings([]);
+    setCategory(next);
   };
+
+  const hasAnyContent = writings.length > 0;
 
   return (
-    <main className="min-h-screen bg-gray-50">
+    <div className="flex min-h-screen flex-col">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between mb-4">
-            <h1 className="text-2xl font-bold text-gray-900">Recent Writings</h1>
+      <header className="sticky top-0 z-20 border-b border-line bg-paper/95 backdrop-blur">
+        <div className="mx-auto w-full max-w-3xl px-4 sm:px-6">
+          <div className="flex h-14 items-center justify-between">
+            <Link href="/" className="font-mono text-sm font-semibold tracking-[0.18em]">
+              WRITE<span className="text-accent">·</span>OR<span className="text-accent">·</span>LOSE
+            </Link>
             <Link
               href="/write/setup"
-              className="px-4 py-2 text-white bg-gray-900 hover:bg-gray-800 transition-colors rounded-none"
+              className="inline-flex h-9 items-center rounded-lg bg-ink px-4 text-sm font-medium text-paper transition-colors hover:bg-ink-soft"
             >
-              Write Something
+              Write something
             </Link>
           </div>
 
-          {/* Category filters */}
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => setSelectedCategory(null)}
-              className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                selectedCategory === null
-                  ? 'bg-gray-900 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              All
-            </button>
-            {Object.entries(categories).map(([key, category]) => (
-              <button
-                key={key}
-                onClick={() => setSelectedCategory(key as CategoryKey)}
-                className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors flex items-center gap-1.5 ${
-                  selectedCategory === key
-                    ? 'bg-gray-900 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                <span>{category.emoji}</span>
-                <span>{category.label}</span>
-                {categoryCount(key as CategoryKey) > 0 && (
-                  <span className="text-xs opacity-75">
-                    ({categoryCount(key as CategoryKey)})
-                  </span>
-                )}
-              </button>
-            ))}
+          {/* Controls */}
+          <div className="flex items-center justify-between gap-3 pb-3">
+            <div role="tablist" aria-label="Sort writings" className="flex rounded-lg border border-line-strong bg-surface p-0.5">
+              {(['recent', 'popular'] as Sort[]).map((option) => (
+                <button
+                  key={option}
+                  role="tab"
+                  aria-selected={sort === option}
+                  onClick={() => changeSort(option)}
+                  className={`rounded-md px-3.5 py-1.5 text-sm capitalize transition-colors ${
+                    sort === option
+                      ? 'bg-ink text-paper'
+                      : 'text-ink-muted hover:text-ink'
+                  }`}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+            {pagination && (
+              <p className="shrink-0 text-xs text-ink-faint tabular-nums" aria-live="polite">
+                {pagination.total} {pagination.total === 1 ? 'writing' : 'writings'}
+              </p>
+            )}
           </div>
-        </div>
-      </div>
 
-      {/* Content */}
-      <div className="max-w-4xl mx-auto px-6 py-8">
+          {/* Categories */}
+          <nav aria-label="Filter by category" className="-mx-4 overflow-x-auto px-4 pb-3 sm:-mx-6 sm:px-6">
+            <div className="flex w-max gap-2">
+              <CategoryChip label="All" active={category === null} onClick={() => changeCategory(null)} />
+              {categoryOrder.map((key) => (
+                <CategoryChip
+                  key={key}
+                  label={categories[key].label}
+                  active={category === key}
+                  onClick={() => changeCategory(key)}
+                />
+              ))}
+            </div>
+          </nav>
+        </div>
+      </header>
+
+      <main id="main-content" className="mx-auto w-full max-w-3xl flex-1 px-4 py-8 sm:px-6">
         {loading ? (
-          <div className="space-y-4">
-            {[...Array(6)].map((_, i) => (
-              <div key={i} className="bg-white rounded-lg border border-gray-200 p-6 animate-pulse">
-                <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
-                <div className="h-3 bg-gray-200 rounded w-full mb-4"></div>
-                <div className="h-3 bg-gray-200 rounded w-1/2"></div>
-              </div>
-            ))}
+          <FeedSkeleton />
+        ) : error ? (
+          <div className="rounded-xl border border-line bg-surface px-6 py-16 text-center">
+            <h2 className="font-serif text-2xl">Couldn’t load the feed</h2>
+            <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-ink-muted">{error}</p>
+            <button
+              type="button"
+              onClick={() => fetchWritings(1, false)}
+              className="mt-6 inline-flex h-11 items-center justify-center rounded-lg bg-ink px-6 text-sm font-medium text-paper transition-colors hover:bg-ink-soft"
+            >
+              Try again
+            </button>
           </div>
-        ) : writings.length === 0 ? (
-          <div className="text-center py-12">
-            <div className="text-6xl mb-4">📝</div>
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">
-              No writings yet
-            </h2>
-            <p className="text-gray-600 mb-6">
-              Be the first to share your thoughts with the world.
+        ) : !hasAnyContent ? (
+          <div className="rounded-xl border border-dashed border-line-strong bg-surface px-6 py-16 text-center">
+            <h2 className="font-serif text-2xl">Nothing here yet</h2>
+            <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-ink-muted">
+              {category
+                ? `No published writings in ${categories[category as keyof typeof categories]?.label ?? 'this category'} yet.`
+                : 'Be the first to finish a challenge and share it with the world.'}
             </p>
             <Link
               href="/write/setup"
-              className="px-6 py-3 text-white bg-gray-900 hover:bg-gray-800 transition-colors rounded-none"
+              className="mt-6 inline-flex h-11 items-center justify-center rounded-lg bg-ink px-6 text-sm font-medium text-paper transition-colors hover:bg-ink-soft"
             >
-              Start Writing
+              Start writing
             </Link>
           </div>
         ) : (
-          <div className="space-y-6">
-            {writings.map((writing) => {
-              const category = categories[writing.category];
-              const mode = writing.challengeMode.charAt(0).toUpperCase() + writing.challengeMode.slice(1);
+          <>
+            <ul className="space-y-4" aria-label="Published writings">
+              {writings.map((writing) => (
+                <FeedCard key={writing.id} writing={writing} showReactions={sort === 'popular'} />
+              ))}
+            </ul>
 
-              return (
-                <Link
-                  key={writing.id}
-                  href={`/feed/${writing.id}`}
-                  className="block bg-white rounded-lg border border-gray-200 hover:border-gray-300 transition-colors p-6"
+            {pagination?.hasMore && (
+              <div className="mt-8 text-center">
+                <button
+                  type="button"
+                  onClick={() => fetchWritings(pageRef.current + 1, true)}
+                  disabled={loadingMore}
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-line-strong bg-surface px-6 text-sm font-medium transition-colors hover:border-ink-faint disabled:opacity-50"
                 >
-                  {/* Header */}
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <span className="text-lg">{category.emoji}</span>
-                      <div>
-                        <div className="font-medium text-gray-900">
-                          {category.label}
-                        </div>
-                        <div className="text-sm text-gray-500">
-                          {formatDistanceToNow(new Date(writing.createdAt), {
-                            addSuffix: true,
-                            locale: zhCN,
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-sm font-medium text-gray-900">
-                        {writing.wordCount} words
-                      </div>
-                      <div className="text-xs text-gray-500">
-                        {mode} Mode
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Excerpt */}
-                  <div className="text-gray-700 leading-relaxed">
-                    {writing.excerpt}
-                  </div>
-
-                  {/* Footer */}
-                  <div className="mt-4 flex items-center justify-between">
-                    <div className="text-sm text-gray-500">
-                      {Math.round(writing.challengeDuration / 60000)}m challenge
-                    </div>
-                    <div className="text-sm text-gray-500">
-                      Read more →
-                    </div>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
+                  {loadingMore && (
+                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-line-strong border-t-ink" aria-hidden="true" />
+                  )}
+                  {loadingMore ? 'Loading…' : 'Load more'}
+                </button>
+              </div>
+            )}
+          </>
         )}
-      </div>
-    </main>
+      </main>
+
+      <footer className="border-t border-line">
+        <div className="mx-auto w-full max-w-3xl px-4 py-6 text-center text-xs text-ink-muted sm:px-6 sm:text-left">
+          Every piece was written under pressure and shared anonymously by choice.
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+function CategoryChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={`whitespace-nowrap rounded-full border px-3.5 py-1.5 text-sm transition-colors ${
+        active
+          ? 'border-ink bg-ink text-paper'
+          : 'border-line-strong bg-surface text-ink-muted hover:border-ink-faint hover:text-ink'
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+function FeedCard({ writing, showReactions }: { writing: FeedWriting; showReactions: boolean }) {
+  const category = categories[writing.category];
+  const mode = getChallengeMode(writing.challengeMode);
+
+  return (
+    <li>
+      <Link
+        href={`/feed/${writing.id}`}
+        className="block rounded-xl border border-line bg-surface p-5 transition-colors hover:border-ink-faint sm:p-6"
+      >
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-muted">
+          <span className="rounded-full bg-paper px-2.5 py-0.5 font-medium text-ink-soft ring-1 ring-line">
+            {category?.label ?? 'Other'}
+          </span>
+          <time dateTime={writing.createdAt}>
+            {formatDistanceToNow(new Date(writing.createdAt), { addSuffix: true })}
+          </time>
+          <span aria-hidden="true">·</span>
+          <span>{mode?.label ?? writing.challengeMode} mode</span>
+          <span aria-hidden="true">·</span>
+          <span className="tabular-nums">{writing.wordCount} words</span>
+          {showReactions && writing.reactionCount > 0 && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span className="tabular-nums">{writing.reactionCount} reactions</span>
+            </>
+          )}
+        </div>
+        <p className="prose-reading mt-3 line-clamp-3 text-base text-ink-soft">
+          {writing.excerpt}
+        </p>
+        <span className="mt-3 inline-block text-sm font-medium text-ink-muted transition-colors group-hover:text-ink">
+          Read →
+        </span>
+      </Link>
+    </li>
+  );
+}
+
+function FeedSkeleton() {
+  return (
+    <div className="space-y-4" aria-hidden="true" role="presentation">
+      {Array.from({ length: 5 }).map((_, i) => (
+        <div key={i} className="animate-pulse rounded-xl border border-line bg-surface p-6">
+          <div className="flex gap-2">
+            <div className="h-4 w-16 rounded-full bg-line" />
+            <div className="h-4 w-24 rounded-full bg-line" />
+          </div>
+          <div className="mt-4 space-y-2.5">
+            <div className="h-3.5 w-full rounded-full bg-line" />
+            <div className="h-3.5 w-11/12 rounded-full bg-line" />
+            <div className="h-3.5 w-2/3 rounded-full bg-line" />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }

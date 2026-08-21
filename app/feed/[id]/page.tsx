@@ -1,77 +1,166 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+/**
+ * Public reading view for one anonymously published writing.
+ */
+
+import { use, useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { categories, type CategoryKey } from '@/lib/config/categories';
+import { categories } from '@/lib/config/categories';
+import { getChallengeMode, type ChallengeModeKey } from '@/lib/config/challengeModes';
 import { formatDistanceToNow } from 'date-fns';
-import { zhCN } from 'date-fns/locale';
 
 interface Writing {
   id: string;
   content: string;
   wordCount: number;
-  category: CategoryKey;
-  challengeMode: string;
+  category: keyof typeof categories;
+  challengeMode: ChallengeModeKey;
   challengeDuration: number;
   createdAt: string;
 }
 
-export default function WritingDetailPage({ params }: { params: { id: string } }) {
+type ReactionType = 'heart' | 'clap' | 'mind_blown' | 'relate';
+
+type Counts = Record<ReactionType | 'total', number>;
+
+const REACTIONS: { type: ReactionType; label: string }[] = [
+  { type: 'heart', label: 'Heart' },
+  { type: 'clap', label: 'Clap' },
+  { type: 'mind_blown', label: 'Mind blown' },
+  { type: 'relate', label: 'Relate' },
+];
+
+export default function WritingDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = use(params);
+
   const [writing, setWriting] = useState<Writing | null>(null);
   const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [counts, setCounts] = useState<Counts | null>(null);
+  // This browser's active reactions (per session fingerprint server-side).
+  const reactedRef = useRef<Set<ReactionType>>(new Set());
+
   useEffect(() => {
-    fetchWriting();
-  }, [params.id]);
+    let cancelled = false;
 
-  const fetchWriting = async () => {
-    try {
+    async function load() {
       setLoading(true);
-      const response = await fetch(`/api/writings/${params.id}`);
+      setNotFound(false);
+      setError(null);
 
-      if (!response.ok) {
+      try {
+        const response = await fetch(`/api/writings/${id}`);
         if (response.status === 404) {
-          setError('Writing not found');
-        } else {
-          throw new Error('Failed to fetch writing');
+          if (!cancelled) setNotFound(true);
+          return;
         }
-        return;
+        if (!response.ok) throw new Error('Failed to load this writing.');
+
+        const data = await response.json();
+        if (cancelled) return;
+        setWriting(data);
+
+        const reactionsResponse = await fetch(`/api/writings/${id}/reactions`);
+        if (reactionsResponse.ok && !cancelled) {
+          const reactionsData = await reactionsResponse.json();
+          setCounts(reactionsData.counts);
+        }
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Something went wrong.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  const react = useCallback(
+    async (type: ReactionType) => {
+      if (!counts) return;
+
+      const hadReacted = reactedRef.current.has(type);
+      const previousCounts = counts;
+      const nextReacted = new Set(reactedRef.current);
+
+      let optimistic: Counts;
+      if (hadReacted) {
+        nextReacted.delete(type);
+        optimistic = {
+          ...counts,
+          [type]: Math.max(0, counts[type] - 1),
+          total: Math.max(0, counts.total - 1),
+        };
+      } else {
+        nextReacted.add(type);
+        optimistic = {
+          ...counts,
+          [type]: counts[type] + 1,
+          total: counts.total + 1,
+        };
       }
 
-      const data = await response.json();
-      setWriting(data);
-    } catch (error) {
-      console.error('Error fetching writing:', error);
-      setError('Failed to load writing');
-    } finally {
-      setLoading(false);
-    }
-  };
+      reactedRef.current = nextReacted;
+      setCounts(optimistic);
+
+      try {
+        const response = await fetch(`/api/writings/${id}/reactions`, {
+          method: hadReacted ? 'DELETE' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reactionType: type }),
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setCounts(data.counts);
+        } else {
+          throw new Error('Request failed');
+        }
+      } catch {
+        reactedRef.current = new Set(
+          hadReacted ? [...nextReacted].filter((t) => t !== type) : [...nextReacted, type]
+        );
+        setCounts(previousCounts);
+      }
+    },
+    [counts, id]
+  );
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading...</p>
+      <main id="main-content" className="grid min-h-screen place-items-center px-6">
+        <div className="flex items-center gap-3 text-sm text-ink-muted">
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-line-strong border-t-ink" aria-hidden="true" />
+          Loading…
         </div>
       </main>
     );
   }
 
-  if (error || !writing) {
+  if (notFound || error || !writing) {
     return (
-      <main className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center max-w-md">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">
-            {error || 'Writing not found'}
+      <main id="main-content" className="grid min-h-screen place-items-center px-6">
+        <div className="w-full max-w-sm rounded-xl border border-line bg-surface p-8 text-center">
+          <h1 className="font-serif text-2xl">
+            {notFound ? 'Writing not found' : 'Couldn’t load this writing'}
           </h1>
+          <p className="mt-2 text-sm leading-relaxed text-ink-muted">
+            {error ?? 'It may have never existed — or the link is off.'}
+          </p>
           <Link
             href="/feed"
-            className="inline-block px-6 py-3 text-white bg-gray-900 hover:bg-gray-800 transition-colors rounded-none"
+            className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-lg bg-ink px-6 text-sm font-medium text-paper transition-colors hover:bg-ink-soft"
           >
-            Back to Feed
+            Back to the feed
           </Link>
         </div>
       </main>
@@ -79,87 +168,109 @@ export default function WritingDetailPage({ params }: { params: { id: string } }
   }
 
   const category = categories[writing.category];
-  const mode = writing.challengeMode.charAt(0).toUpperCase() + writing.challengeMode.slice(1);
-  const minutes = Math.round(writing.challengeDuration / 60000);
+  const mode = getChallengeMode(writing.challengeMode);
+  const minutes = Math.max(1, Math.round(writing.challengeDuration / 60_000));
 
   return (
-    <main className="min-h-screen bg-gray-50">
+    <div className="flex min-h-screen flex-col">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <Link
-              href="/feed"
-              className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
-            >
-              <span>←</span>
-              <span>Back to Feed</span>
-            </Link>
-            <Link
-              href="/write/setup"
-              className="px-4 py-2 text-white bg-gray-900 hover:bg-gray-800 transition-colors rounded-none"
-            >
-              Write Something
-            </Link>
-          </div>
+      <header className="sticky top-0 z-20 border-b border-line bg-paper/95 backdrop-blur">
+        <div className="mx-auto flex h-14 w-full max-w-2xl items-center justify-between px-4 sm:px-6">
+          <Link
+            href="/feed"
+            className="inline-flex items-center gap-1.5 text-sm text-ink-muted transition-colors hover:text-ink"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M10.5 3 5.5 8l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Feed
+          </Link>
+          <Link
+            href="/write/setup"
+            className="inline-flex h-9 items-center rounded-lg bg-ink px-4 text-sm font-medium text-paper transition-colors hover:bg-ink-soft"
+          >
+            Write something
+          </Link>
         </div>
-      </div>
+      </header>
 
-      {/* Content */}
-      <div className="max-w-4xl mx-auto px-6 py-8">
-        {/* Writing header */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <span className="text-2xl">{category.emoji}</span>
-              <div>
-                <h1 className="text-xl font-bold text-gray-900">
-                  {category.label}
-                </h1>
-                <div className="text-sm text-gray-500">
-                  {formatDistanceToNow(new Date(writing.createdAt), {
-                    addSuffix: true,
-                    locale: zhCN,
-                  })}
-                </div>
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-sm font-medium text-gray-900">
-                {writing.wordCount} words
-              </div>
-              <div className="text-xs text-gray-500">
-                {mode} · {minutes}m challenge
-              </div>
-            </div>
-          </div>
+      <main id="main-content" className="mx-auto w-full max-w-2xl flex-1 animate-fade-up px-4 py-12 sm:px-6 md:py-16">
+        {/* Meta */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-ink-muted sm:text-sm">
+          <span className="rounded-full bg-surface px-3 py-1 font-medium text-ink-soft ring-1 ring-line">
+            {category?.label ?? 'Other'}
+          </span>
+          <time dateTime={writing.createdAt}>
+            Published {formatDistanceToNow(new Date(writing.createdAt), { addSuffix: true })}
+          </time>
+          <span aria-hidden="true">·</span>
+          <span>{mode?.label ?? writing.challengeMode} mode</span>
+          <span aria-hidden="true">·</span>
+          <span className="tabular-nums">{writing.wordCount} words in ~{minutes} min</span>
         </div>
 
-        {/* Writing content */}
-        <div className="bg-white rounded-lg border border-gray-200 p-8 mb-6">
-          <div className="prose prose-gray max-w-none">
-            <div className="text-gray-900 leading-relaxed whitespace-pre-wrap">
-              {writing.content}
-            </div>
-          </div>
-        </div>
+        {/* Byline */}
+        <h1 className="mt-6 flex items-center gap-3 text-lg">
+          <span
+            aria-hidden="true"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-paper font-mono text-sm text-ink-muted ring-1 ring-line"
+          >
+            ?
+          </span>
+          <span>
+            Anonymous writer
+            <span className="block text-xs font-normal text-ink-faint">
+              Wrote under pressure. Chose to share.
+            </span>
+          </span>
+        </h1>
 
-        {/* Footer */}
-        <div className="text-center text-sm text-gray-500">
-          <p>
-            This writing was shared anonymously as part of a writing challenge.
+        {/* Body */}
+        <article className="prose-reading mt-10 text-ink">
+          {writing.content}
+        </article>
+
+        {/* Reactions */}
+        {counts && (
+          <section aria-label="Reactions" className="mt-14 border-t border-line pt-8">
+            <p className="text-sm text-ink-muted">How did this land for you?</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {REACTIONS.map(({ type, label }) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => react(type)}
+                  aria-pressed={reactedRef.current.has(type)}
+                  className={`inline-flex h-10 items-center gap-2 rounded-full border px-4 text-sm transition-colors ${
+                    reactedRef.current.has(type)
+                      ? 'border-ink bg-ink text-paper'
+                      : 'border-line-strong bg-surface text-ink-muted hover:border-ink-faint hover:text-ink'
+                  }`}
+                >
+                  {label}
+                  <span className="font-mono text-xs tabular-nums opacity-80">
+                    {counts[type]}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Footer CTA */}
+        <footer className="mt-16 rounded-xl border border-dashed border-line-strong px-6 py-8 text-center">
+          <p className="font-serif text-xl">Everyone has something unsaid.</p>
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-ink-muted">
+            Write yours under pressure — then decide if the world gets to read it.
           </p>
-          <p className="mt-2">
-            Want to share your own story?{' '}
-            <Link
-              href="/write/setup"
-              className="text-gray-900 hover:underline font-medium"
-            >
-              Start writing
-            </Link>
-          </p>
-        </div>
-      </div>
-    </main>
+          <Link
+            href="/write/setup"
+            className="mt-5 inline-flex h-11 items-center justify-center rounded-lg bg-ink px-6 text-sm font-medium text-paper transition-colors hover:bg-ink-soft"
+          >
+            Start your own
+          </Link>
+        </footer>
+      </main>
+    </div>
   );
 }

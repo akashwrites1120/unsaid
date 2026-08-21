@@ -3,229 +3,242 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { challengeModeOrder, getChallengeMode, type ChallengeModeKey } from '@/lib/config/challengeModes';
-import { categories, type CategoryKey, getDefaultCategory } from '@/lib/config/categories';
+import {
+  challengeModeOrder,
+  getChallengeMode,
+  type ChallengeModeKey,
+} from '@/lib/config/challengeModes';
+import { categories, categoryOrder, type CategoryKey } from '@/lib/config/categories';
+import { publishConfig } from '@/lib/config/publishConfig';
+import { saveSessionToStorage, type WritingSession } from '@/lib/storage/draftStorage';
 
 const WRITING_PRESETS = [
+  "Something I've been putting off",
   'College assignment',
   'Story',
-  'Journal',
-  'Blog',
+  'Journal entry',
+  'Blog post',
   'Research',
   'Personal thoughts',
-  'Something I\'ve been procrastinating',
 ] as const;
 
 export default function WritingSetupPage() {
   const router = useRouter();
-  const [topic, setTopic] = useState('');
+  const [presetTopic, setPresetTopic] = useState<string>('');
   const [customTopic, setCustomTopic] = useState('');
-  const [selectedMode, setSelectedMode] = useState<ChallengeModeKey>('focus');
-  const [selectedCategory, setSelectedCategory] = useState<CategoryKey>(getDefaultCategory().key);
   const [isCustom, setIsCustom] = useState(false);
+  const [selectedMode, setSelectedMode] = useState<ChallengeModeKey>('focus');
+  const [selectedCategory, setSelectedCategory] = useState<CategoryKey>('thoughts');
+  const [submitting, setSubmitting] = useState(false);
+
+  const finalTopic = isCustom ? customTopic.trim() : presetTopic;
+  const canStart = finalTopic.length > 0 && !submitting;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const finalTopic = isCustom ? customTopic.trim() : topic;
-    if (!finalTopic) return;
+    if (!canStart) return;
 
-    // Store in sessionStorage for the challenge screen
-    sessionStorage.setItem('writing-session', JSON.stringify({
+    setSubmitting(true);
+    const session: WritingSession = {
       topic: finalTopic,
       mode: selectedMode,
       category: selectedCategory,
-      startTime: Date.now(),
+      startedAt: Date.now(),
+      elapsedMs: 0,
       content: '',
-    }));
-
+      wordCount: 0,
+      longestStreakMs: 0,
+      status: 'writing',
+    };
+    saveSessionToStorage(session);
     router.push('/write/challenge');
   };
 
-  const mode = getChallengeMode(selectedMode);
-
   return (
-    <main className="min-h-screen flex flex-col px-6 py-12 bg-white text-gray-900">
-      {/* Back link */}
-      <Link
-        href="/"
-        className="self-start text-gray-500 hover:text-gray-900 transition-colors mb-8 text-sm font-mono"
-      >
-        ← Back
-      </Link>
-
-      <div className="max-w-2xl mx-auto w-full space-y-10 flex-1 flex flex-col justify-center">
-        {/* Header */}
-        <div className="text-center space-y-2">
-          <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
-            What are you writing?
-          </h1>
-          <p className="text-gray-600 text-lg">
-            Pick a preset or write your own. Then choose your pressure level.
-          </p>
+    <div className="flex min-h-screen flex-col">
+      <header className="border-b border-line">
+        <div className="mx-auto flex w-full max-w-2xl items-center justify-between px-6 py-4">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1.5 text-sm text-ink-muted transition-colors hover:text-ink"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M10.5 3 5.5 8l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Back
+          </Link>
+          <span className="font-mono text-xs uppercase tracking-[0.18em] text-ink-faint">
+            New challenge
+          </span>
         </div>
+      </header>
 
-        {/* Topic Selection */}
-        <form onSubmit={handleSubmit} className="space-y-8">
-          <fieldset className="space-y-4">
-            <legend className="text-sm font-semibold text-gray-700 mb-2 block">
-              Topic
-            </legend>
+      <main id="main-content" className="mx-auto w-full max-w-2xl flex-1 px-6 py-12 md:py-16">
+        <h1 className="font-serif text-4xl tracking-tight md:text-5xl">What are you writing?</h1>
+        <p className="mt-3 text-ink-muted">
+          Pick a starting point or write your own — then choose your pressure.
+        </p>
 
-            {/* Preset chips */}
-            <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Writing topic presets">
-              {WRITING_PRESETS.map((preset) => (
-                <label
-                  key={preset}
-                  className={`px-4 py-2 rounded-none border transition-all ${
-                    topic === preset && !isCustom
-                      ? 'border-gray-900 bg-gray-100 text-gray-900'
-                      : 'border-gray-300 text-gray-600 hover:border-gray-400 hover:text-gray-900'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="topic"
-                    value={preset}
-                    checked={topic === preset && !isCustom}
-                    onChange={() => {
-                      setTopic(preset);
-                      setIsCustom(false);
-                      setCustomTopic('');
-                    }}
-                    className="sr-only"
-                    aria-label={preset}
-                  />
-                  {preset}
-                </label>
-              ))}
-            </div>
-
-            {/* Custom input */}
-            <label className="block">
-              <input
-                type="radio"
-                name="topic"
-                checked={isCustom}
-                onChange={() => setIsCustom(true)}
-                className="sr-only"
-                aria-label="Custom topic"
-              />
-              <div className="flex gap-2">
-                <span className={`px-4 py-2 rounded-none border transition-all flex-1 ${
-                  isCustom
-                    ? 'border-gray-900 bg-gray-100'
-                    : 'border-gray-300 hover:border-gray-400'
-                }`}>
-                  <input
-                    type="text"
-                    value={customTopic}
-                    onChange={(e) => setCustomTopic(e.target.value)}
-                    placeholder="Custom topic..."
-                    className="bg-transparent border-none outline-none text-gray-900 placeholder:text-gray-400 w-full text-base"
-                    disabled={!isCustom}
-                    aria-label="Custom writing topic"
-                  />
-                </span>
-              </div>
-            </label>
-          </fieldset>
-
-          {/* Category Selector */}
-          <fieldset className="space-y-4">
-            <legend className="text-sm font-semibold text-gray-700 mb-2 block">
-              Category
-            </legend>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3" role="radiogroup" aria-label="Writing category">
-              {Object.entries(categories).map(([key, category]) => (
-                <label
-                  key={key}
-                  className={`relative p-3 rounded-none border transition-all cursor-pointer ${
-                    selectedCategory === key
-                      ? 'border-gray-900 bg-gray-100 text-gray-900'
-                      : 'border-gray-300 text-gray-600 hover:border-gray-400 hover:text-gray-900'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="category"
-                    value={key}
-                    checked={selectedCategory === key}
-                    onChange={() => setSelectedCategory(key as CategoryKey)}
-                    className="sr-only"
-                    aria-label={category.label}
-                  />
-                  <div className="text-center">
-                    <div className="text-2xl mb-1">{category.emoji}</div>
-                    <div className="font-medium text-sm">{category.label}</div>
-                  </div>
-                  {selectedCategory === key && (
-                    <div
-                      className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-gray-900"
-                    />
-                  )}
-                </label>
-              ))}
-            </div>
-          </fieldset>
-
-          {/* Mode Selector */}
-          <fieldset className="space-y-4">
-            <legend className="text-sm font-semibold text-gray-700 mb-2 block">
-              Challenge Mode
-            </legend>
-            <div className="grid grid-cols-3 gap-3" role="radiogroup" aria-label="Challenge mode">
-              {challengeModeOrder.map((modeKey) => {
-                const m = getChallengeMode(modeKey);
+        <form onSubmit={handleSubmit} className="mt-12 space-y-12">
+          {/* Topic */}
+          <fieldset>
+            <legend className="text-sm font-medium text-ink">Topic</legend>
+            <div className="mt-3 flex flex-wrap gap-2" role="radiogroup" aria-label="Writing topic presets">
+              {WRITING_PRESETS.map((preset) => {
+                const selected = !isCustom && presetTopic === preset;
                 return (
                   <label
-                    key={modeKey}
-                    className={`relative p-4 rounded-none border transition-all cursor-pointer ${
-                      selectedMode === modeKey
-                        ? 'border-gray-900 bg-gray-100 text-gray-900'
-                        : 'border-gray-300 text-gray-600 hover:border-gray-400 hover:text-gray-900'
+                    key={preset}
+                    className={`cursor-pointer rounded-full border px-4 py-2 text-sm transition-colors ${
+                      selected
+                        ? 'border-ink bg-ink text-paper'
+                        : 'border-line-strong bg-surface text-ink-muted hover:border-ink-faint hover:text-ink'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="topic"
+                      value={preset}
+                      checked={selected}
+                      onChange={() => {
+                        setPresetTopic(preset);
+                        setIsCustom(false);
+                      }}
+                      className="sr-only"
+                    />
+                    {preset}
+                  </label>
+                );
+              })}
+            </div>
+            <div className="mt-3">
+              <label htmlFor="custom-topic" className="sr-only">
+                Custom topic
+              </label>
+              <input
+                id="custom-topic"
+                type="text"
+                value={isCustom ? customTopic : ''}
+                onFocus={() => setIsCustom(true)}
+                onChange={(e) => {
+                  setIsCustom(true);
+                  setCustomTopic(e.target.value);
+                }}
+                placeholder="Or type your own topic…"
+                maxLength={140}
+                className={`h-11 w-full rounded-lg border bg-surface px-4 text-base transition-colors placeholder:text-ink-faint ${
+                  isCustom ? 'border-ink' : 'border-line-strong'
+                }`}
+              />
+            </div>
+          </fieldset>
+
+          {/* Category */}
+          <fieldset>
+            <legend className="text-sm font-medium text-ink">Category</legend>
+            <p className="mt-1 text-sm text-ink-muted">
+              Shown publicly if you publish. Nothing is attached to you.
+            </p>
+            <div
+              className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3"
+              role="radiogroup"
+              aria-label="Writing category"
+            >
+              {categoryOrder.map((key) => {
+                const selected = selectedCategory === key;
+                return (
+                  <label
+                    key={key}
+                    className={`cursor-pointer rounded-lg border px-4 py-3 text-sm transition-colors ${
+                      selected
+                        ? 'border-ink bg-surface font-medium text-ink'
+                        : 'border-line-strong bg-surface text-ink-muted hover:border-ink-faint hover:text-ink'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="category"
+                      value={key}
+                      checked={selected}
+                      onChange={() => setSelectedCategory(key)}
+                      className="sr-only"
+                    />
+                    {categories[key].label}
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
+
+          {/* Mode */}
+          <fieldset>
+            <legend className="text-sm font-medium text-ink">Pressure</legend>
+            <div
+              className="mt-3 grid gap-2 sm:grid-cols-3"
+              role="radiogroup"
+              aria-label="Challenge mode"
+            >
+              {challengeModeOrder.map((key) => {
+                const m = getChallengeMode(key);
+                const selected = selectedMode === key;
+                return (
+                  <label
+                    key={key}
+                    className={`cursor-pointer rounded-lg border p-4 transition-colors ${
+                      selected
+                        ? 'border-ink bg-surface'
+                        : 'border-line-strong bg-surface hover:border-ink-faint'
                     }`}
                   >
                     <input
                       type="radio"
                       name="mode"
-                      value={modeKey}
-                      checked={selectedMode === modeKey}
-                      onChange={() => setSelectedMode(modeKey)}
+                      value={key}
+                      checked={selected}
+                      onChange={() => setSelectedMode(key)}
                       className="sr-only"
-                      aria-label={m.label}
                     />
-                    <div className="text-center">
-                      <div className="font-semibold text-lg">{m.label}</div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        {Math.round(m.inactivityThresholdMs / 1000)}s inactivity limit
-                      </div>
-                    </div>
-                    {selectedMode === modeKey && (
-                      <div
-                        className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-gray-900"
+                    <div className="flex items-center justify-between">
+                      <span className={`font-medium ${selected ? 'text-ink' : 'text-ink-muted'}`}>
+                        {m.label}
+                      </span>
+                      <span
+                        aria-hidden="true"
+                        className="h-2.5 w-2.5 rounded-full"
+                        style={{ backgroundColor: m.color }}
                       />
-                    )}
+                    </div>
+                    <span className="mt-1 block font-mono text-xs tabular-nums text-ink-faint">
+                      {Math.round(m.inactivityThresholdMs / 1000)}s inactivity limit
+                    </span>
                   </label>
                 );
               })}
             </div>
-
-            {/* Mode description */}
-            <div className="p-4 rounded-none border border-gray-200 bg-gray-50 min-h-[80px] transition-all">
-              <p className="text-gray-700 text-sm">{mode.description}</p>
-            </div>
+            <p
+              className="mt-3 rounded-lg border border-line bg-surface px-4 py-3 text-sm leading-relaxed text-ink-muted"
+              role="note"
+            >
+              {getChallengeMode(selectedMode).description}.
+            </p>
           </fieldset>
 
-          {/* Start Button */}
-          <button
-            type="submit"
-            disabled={!topic && !isCustom && !customTopic.trim()}
-            className="w-full px-8 py-4 text-lg font-semibold text-white bg-gray-900 hover:bg-gray-800 transition-colors rounded-none disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Start Writing
-          </button>
+          <div className="space-y-3 border-t border-line pt-8">
+            <button
+              type="submit"
+              disabled={!canStart}
+              className="inline-flex h-13 w-full items-center justify-center rounded-lg bg-ink px-8 py-3.5 text-base font-medium text-paper transition-colors hover:bg-ink-soft disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Start writing
+            </button>
+            <p className="text-center text-xs text-ink-faint">
+              The timer starts on your first keystroke. Publishing needs{' '}
+              {publishConfig.minWordCount}+ words — but only if you choose to.
+            </p>
+          </div>
         </form>
-      </div>
-    </main>
+      </main>
+    </div>
   );
 }
+
