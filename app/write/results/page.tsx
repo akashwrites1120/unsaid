@@ -50,6 +50,9 @@ export default function ResultsPage() {
   const [publishedId, setPublishedId] = useState<string | null>(null);
 
   useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect -- storage read is
+       intentionally post-mount; sessionStorage doesn't exist during SSR,
+       so this can't be a lazy initializer without breaking hydration. */
     const saved = loadSessionFromStorage();
     if (!saved || !saved.topic) {
       setLoadError('No finished session found on this device.');
@@ -64,6 +67,7 @@ export default function ResultsPage() {
       setSession(normalized);
     }
     setLoading(false);
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
   if (loading) {

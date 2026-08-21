@@ -77,6 +77,9 @@ export default function FeedPage() {
   );
 
   useEffect(() => {
+    // Initial + filter-driven fetch; setStates inside `load` happen after the
+    // await boundary, not synchronously in the effect body.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load(1, false);
   }, [load]);
 
@@ -166,7 +169,7 @@ export default function FeedPage() {
             <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-ink-muted">{error}</p>
             <button
               type="button"
-              onClick={() => fetchWritings(1, false)}
+              onClick={() => load(1, false)}
               className="mt-6 inline-flex h-11 items-center justify-center rounded-lg bg-ink px-6 text-sm font-medium text-paper transition-colors hover:bg-ink-soft"
             >
               Try again
@@ -199,7 +202,7 @@ export default function FeedPage() {
               <div className="mt-8 text-center">
                 <button
                   type="button"
-                  onClick={() => fetchWritings(pageRef.current + 1, true)}
+                  onClick={() => load(pageRef.current + 1, true)}
                   disabled={loadingMore}
                   className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-line-strong bg-surface px-6 text-sm font-medium transition-colors hover:border-ink-faint disabled:opacity-50"
                 >

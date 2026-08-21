@@ -4,7 +4,7 @@
  * Public reading view for one anonymously published writing.
  */
 
-import { use, useCallback, useEffect, useRef, useState } from 'react';
+import { use, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { categories } from '@/lib/config/categories';
 import { getChallengeMode, type ChallengeModeKey } from '@/lib/config/challengeModes';
@@ -44,8 +44,8 @@ export default function WritingDetailPage({
   const [error, setError] = useState<string | null>(null);
 
   const [counts, setCounts] = useState<Counts | null>(null);
-  // This browser's active reactions (per session fingerprint server-side).
-  const reactedRef = useRef<Set<ReactionType>>(new Set());
+  // This browser's active reactions (mirrored by a session fingerprint server-side).
+  const [reacted, setReacted] = useState<Set<ReactionType>>(new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -89,9 +89,10 @@ export default function WritingDetailPage({
     async (type: ReactionType) => {
       if (!counts) return;
 
-      const hadReacted = reactedRef.current.has(type);
+      const hadReacted = reacted.has(type);
       const previousCounts = counts;
-      const nextReacted = new Set(reactedRef.current);
+      const previousReacted = reacted;
+      const nextReacted = new Set(reacted);
 
       let optimistic: Counts;
       if (hadReacted) {
@@ -110,7 +111,7 @@ export default function WritingDetailPage({
         };
       }
 
-      reactedRef.current = nextReacted;
+      setReacted(nextReacted);
       setCounts(optimistic);
 
       try {
@@ -126,13 +127,11 @@ export default function WritingDetailPage({
           throw new Error('Request failed');
         }
       } catch {
-        reactedRef.current = new Set(
-          hadReacted ? [...nextReacted].filter((t) => t !== type) : [...nextReacted, type]
-        );
+        setReacted(previousReacted);
         setCounts(previousCounts);
       }
     },
-    [counts, id]
+    [counts, id, reacted]
   );
 
   if (loading) {
@@ -240,9 +239,9 @@ export default function WritingDetailPage({
                   key={type}
                   type="button"
                   onClick={() => react(type)}
-                  aria-pressed={reactedRef.current.has(type)}
+                  aria-pressed={reacted.has(type)}
                   className={`inline-flex h-10 items-center gap-2 rounded-full border px-4 text-sm transition-colors ${
-                    reactedRef.current.has(type)
+                    reacted.has(type)
                       ? 'border-ink bg-ink text-paper'
                       : 'border-line-strong bg-surface text-ink-muted hover:border-ink-faint hover:text-ink'
                   }`}
