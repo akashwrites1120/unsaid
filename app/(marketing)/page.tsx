@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { challengeModeOrder, getChallengeMode } from '@/lib/config/challengeModes';
 import { AuthButton } from '@/components/auth/AuthButton';
+import { GitHubLink } from '@/components/GitHubLink';
 
 const MODE_ICONS: Record<string, React.ReactNode> = {
   soft: (
@@ -272,11 +273,12 @@ export default function LandingPage() {
 
       {/* Footer */}
       <footer className="border-t border-line">
-        <div className="mx-auto flex w-full max-w-6xl flex-col items-center justify-between gap-2 px-6 py-6 text-sm text-ink-muted sm:flex-row">
+        <div className="mx-auto flex w-full max-w-6xl flex-col items-center justify-between gap-3 px-6 py-6 text-sm text-ink-muted sm:flex-row">
           <span className="font-mono text-xs font-semibold tracking-[0.18em]">
             UNSAID
           </span>
           <span>Writing is free. Publishing needs a user id — posts show it proudly.</span>
+          <GitHubLink />
         </div>
       </footer>
     </div>

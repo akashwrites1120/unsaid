@@ -10,6 +10,7 @@ import { categories, categoryOrder } from '@/lib/config/categories';
 import { getChallengeMode, type ChallengeModeKey } from '@/lib/config/challengeModes';
 import { formatDistanceToNow } from 'date-fns';
 import { AuthButton } from '@/components/auth/AuthButton';
+import { GitHubLink } from '@/components/GitHubLink';
 
 interface FeedWriting {
   id: string;
@@ -223,8 +224,9 @@ export default function FeedPage() {
       </main>
 
       <footer className="border-t border-line">
-        <div className="mx-auto w-full max-w-3xl px-4 py-6 text-center text-xs text-ink-muted sm:px-6 sm:text-left">
-          Every piece was written under pressure and shared by choice.
+        <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3 px-4 py-6 text-xs text-ink-muted sm:px-6 sm:text-left">
+          <span>Every piece was written under pressure and shared by choice.</span>
+          <GitHubLink />
         </div>
       </footer>
     </div>
