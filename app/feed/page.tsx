@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { categories, categoryOrder } from '@/lib/config/categories';
 import { getChallengeMode, type ChallengeModeKey } from '@/lib/config/challengeModes';
 import { formatDistanceToNow } from 'date-fns';
+import { AuthButton } from '@/components/auth/AuthButton';
 
 interface FeedWriting {
   id: string;
@@ -105,16 +106,19 @@ export default function FeedPage() {
       {/* Header */}
       <header className="sticky top-0 z-20 border-b border-line bg-paper/95 backdrop-blur">
         <div className="mx-auto w-full max-w-3xl px-4 sm:px-6">
-          <div className="flex h-14 items-center justify-between">
+          <div className="flex h-14 items-center justify-between gap-3">
             <Link href="/" className="font-mono text-sm font-semibold tracking-[0.18em]">
               WRITE<span className="text-accent">·</span>OR<span className="text-accent">·</span>LOSE
             </Link>
-            <Link
-              href="/write/setup"
-              className="inline-flex h-9 items-center rounded-lg bg-ink px-4 text-sm font-medium text-paper transition-colors hover:bg-ink-soft"
-            >
-              Write something
-            </Link>
+            <div className="flex shrink-0 items-center gap-4 sm:gap-5">
+              <AuthButton />
+              <Link
+                href="/write/setup"
+                className="inline-flex h-9 items-center rounded-lg bg-ink px-4 text-sm font-medium text-paper transition-colors hover:bg-ink-soft"
+              >
+                Write something
+              </Link>
+            </div>
           </div>
 
           {/* Controls */}

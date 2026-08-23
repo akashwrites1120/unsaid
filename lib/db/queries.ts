@@ -95,6 +95,64 @@ export async function getPublicWriting(id: string): Promise<PublicWritingRow | n
 }
 
 /**
+ * Detects PostgREST's "relation not found in schema cache" error, raised when
+ * the aggregated reactions view hasn't been provisioned yet.
+ */
+function isMissingRelationError(error: { code?: string | null; message: string }): boolean {
+  return (
+    error.code === 'PGRST205' ||
+    /in the schema cache|does not exist/i.test(error.message)
+  );
+}
+
+const POPULAR_FALLBACK_WINDOW = 1000;
+
+/**
+ * Fallback for when the aggregated view isn't provisioned yet (reactions
+ * migration pending): reads the base table and derives reaction totals from
+ * embedded reaction rows.
+ */
+async function listWithoutReactionsView(
+  params: WritingListParams
+): Promise<PublicWritingWithReactions[]> {
+  const supabase = getServerSupabase();
+  const { sort = 'recent', category, limit = 20, offset = 0 } = params;
+
+  // Popular ranking needs a global aggregate, which PostgREST can't express
+  // without the view. We load a bounded recency window and rank it in memory
+  // — adequate for the small datasets this app targets.
+  const windowSize = sort === 'popular' ? POPULAR_FALLBACK_WINDOW : limit;
+
+  let query = supabase
+    .from('public_writings')
+    .select(`${WRITING_COLUMNS}, writing_reactions(reaction_type)`)
+    .order('created_at', { ascending: false })
+    .range(0, Math.max(0, windowSize - 1));
+
+  if (category) {
+    query = query.eq('category', category);
+  }
+
+  const { data, error } = await query;
+
+  if (error) throw new Error(`Failed to list writings: ${error.message}`);
+
+  const rows = ((data ?? []) as Array<
+    PublicWritingRow & { writing_reactions?: { reaction_type: string }[] | null }
+  >).map((row) => ({
+    ...row,
+    total_reactions: row.writing_reactions?.length ?? 0,
+  }));
+
+  if (sort === 'popular') {
+    rows.sort((a, b) => b.total_reactions - a.total_reactions);
+    return rows.slice(offset, offset + limit);
+  }
+
+  return rows;
+}
+
+/**
  * List writings with reaction totals. Uses the aggregated view for both sorts
  * so every row carries a correct `total_reactions` value.
  */
@@ -116,7 +174,12 @@ export async function listPublicWritings(
 
   const { data, error } = await query;
 
-  if (error) throw new Error(`Failed to list writings: ${error.message}`);
+  if (error) {
+    if (isMissingRelationError(error)) {
+      return listWithoutReactionsView(params);
+    }
+    throw new Error(`Failed to list writings: ${error.message}`);
+  }
   return (data as PublicWritingWithReactions[]) ?? [];
 }
 

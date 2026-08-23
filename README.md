@@ -41,7 +41,7 @@
    npm install
    ```
 
-2. Create the database table by running the migration in `supabase/migrations/` against your Supabase project (via the SQL editor or the Supabase CLI).
+2. Create the database schema by running the single migration in `supabase/migrations/` against your Supabase project (via the SQL editor or the Supabase CLI).
 
 3. Configure environment variables:
 

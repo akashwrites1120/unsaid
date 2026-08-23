@@ -4,6 +4,7 @@ import { categories, type CategoryKey } from '@/lib/config/categories';
 import { getChallengeMode, type ChallengeModeKey } from '@/lib/config/challengeModes';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimiter';
 import { countWords, htmlToPlainText } from '@/lib/utils/text';
+import { getSessionUser } from '@/lib/auth/server';
 import {
   createPublicWriting,
   countPublicWritings,
@@ -40,6 +41,20 @@ function validatePublishBody(body: unknown): body is PublishRequestBody {
 
 export async function POST(request: NextRequest) {
   try {
+    // ---- Account gate: writing is free, publishing requires a user id ----
+    let user;
+    try {
+      user = await getSessionUser(request);
+    } catch {
+      return NextResponse.json({ error: 'Could not verify your session. Please sign in again.' }, { status: 500 });
+    }
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Sign in with your user id to publish.', code: 'AUTH_REQUIRED' },
+        { status: 401 }
+      );
+    }
+
     // ---- Abuse guards (4.5): rate limit per IP, then payload sanity ----
     const rateLimitResult = checkRateLimit(getClientIp(request), {
       windowMs: 60_000,
@@ -113,6 +128,8 @@ export async function POST(request: NextRequest) {
       category: body.category,
       challengeMode: body.challengeMode,
       challengeDuration: Math.round(body.challengeDuration),
+      // Ownership is recorded for the author only — never exposed publicly.
+      authorId: user.id,
     });
 
     return NextResponse.json({

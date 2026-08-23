@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { challengeModeOrder, getChallengeMode } from '@/lib/config/challengeModes';
+import { AuthButton } from '@/components/auth/AuthButton';
 
 const MODE_ICONS: Record<string, React.ReactNode> = {
   soft: (
@@ -44,8 +45,8 @@ const STEPS = [
 
 const PRINCIPLES = [
   { title: 'Never deleted', text: 'Lose the challenge, keep every word. Your writing is always saved.' },
-  { title: 'Anonymous by design', text: 'Publishing strips everything identifying. No names, no accounts.' },
-  { title: 'No accounts, ever', text: 'Nothing to sign up for. Show up, write, decide if the world reads it.' },
+  { title: 'Anonymous by design', text: 'Published posts carry no name. Even with an account, your identity never shows.' },
+  { title: 'Take it with you', text: 'Download any finished piece as a file. Your words belong to you, online or off.' },
 ];
 
 export default function LandingPage() {
@@ -60,10 +61,11 @@ export default function LandingPage() {
           >
             WRITE<span className="text-accent">·</span>OR<span className="text-accent">·</span>LOSE
           </Link>
-          <nav aria-label="Primary" className="flex items-center gap-6 text-sm">
+          <nav aria-label="Primary" className="flex items-center gap-5 text-sm sm:gap-6">
             <Link href="/feed" className="text-ink-muted transition-colors hover:text-ink">
               Read writings
             </Link>
+            <AuthButton />
             <Link
               href="/write/setup"
               className="inline-flex h-9 items-center rounded-lg bg-ink px-4 font-medium text-paper transition-colors hover:bg-ink-soft"
@@ -78,7 +80,7 @@ export default function LandingPage() {
         {/* Hero */}
         <section className="hero-glow relative overflow-hidden">
           <div className="bg-dot-grid pointer-events-none absolute inset-0" aria-hidden="true" />
-          <div className="relative mx-auto flex w-full max-w-4xl flex-col items-center px-6 pb-20 pt-24 text-center md:pb-28 md:pt-32">
+          <div className="relative mx-auto flex w-full max-w-4xl flex-col items-center px-6 pb-16 pt-12 text-center sm:pb-20 sm:pt-14 md:pb-28 md:pt-16">
             <p className="animate-fade-up mb-8 inline-flex items-center gap-2 rounded-full border border-line bg-surface px-4 py-1.5 font-mono text-xs uppercase tracking-[0.22em] text-ink-muted">
               <span className="relative flex h-1.5 w-1.5" aria-hidden="true">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-60" />
@@ -262,7 +264,7 @@ export default function LandingPage() {
                   <path d="M2 8h11M9 3.5 13.5 8 9 12.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </Link>
-              <p className="mt-4 text-sm text-ink-faint">No sign-up. No cost. No mercy from the timer.</p>
+              <p className="mt-4 text-sm text-ink-faint">Free to write. No mercy from the timer.</p>
             </div>
           </div>
         </section>
@@ -274,7 +276,7 @@ export default function LandingPage() {
           <span className="font-mono text-xs font-semibold tracking-[0.18em]">
             WRITE<span className="text-accent">·</span>OR<span className="text-accent">·</span>LOSE
           </span>
-          <span>Publishing is anonymous by design. No accounts, ever.</span>
+          <span>Writing is free. Publishing asks for a user id — posts stay anonymous.</span>
         </div>
       </footer>
     </div>

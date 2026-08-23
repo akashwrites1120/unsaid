@@ -17,6 +17,7 @@ import { categories } from '@/lib/config/categories';
 import { publishConfig } from '@/lib/config/publishConfig';
 import { loadSessionFromStorage, saveSessionToStorage, type WritingSession } from '@/lib/storage/draftStorage';
 import { countWords, htmlToPlainText } from '@/lib/utils/text';
+import { AuthDialog } from '@/components/auth/AuthDialog';
 
 type PublishStep = 'idle' | 'privacy' | 'confirm' | 'publishing' | 'done';
 
@@ -48,6 +49,23 @@ export default function ResultsPage() {
   const [publishStep, setPublishStep] = useState<PublishStep>('idle');
   const [publishError, setPublishError] = useState<string | null>(null);
   const [publishedId, setPublishedId] = useState<string | null>(null);
+
+  // Publishing requires an account; the dialog resumes the publish on success.
+  const [username, setUsername] = useState<string | null>(null);
+  const [authDialogOpen, setAuthDialogOpen] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/auth/me')
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled) setUsername(data.user?.username ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect -- storage read is
@@ -109,6 +127,7 @@ export default function ResultsPage() {
   const remaining = publishConfig.minWordCount - session.wordCount;
 
   const handlePublish = async () => {
+    if (!session) return;
     setPublishStep('publishing');
     setPublishError(null);
 
@@ -137,6 +156,37 @@ export default function ResultsPage() {
       setPublishError(err instanceof Error ? err.message : 'Publishing failed.');
       setPublishStep('confirm');
     }
+  };
+
+  /** Publish attempt — opens the account dialog when signed out. */
+  const attemptPublish = () => {
+    if (!username) {
+      setAuthDialogOpen(true);
+      return;
+    }
+    handlePublish();
+  };
+
+  /** Save the finished piece locally as a .txt file. */
+  const downloadWriting = () => {
+    if (!session) return;
+    const header = [
+      session.topic || 'Untitled',
+      `${mode.label} mode · ${category?.label ?? ''} · ${session.wordCount} words · ${formatElapsed(session.elapsedMs)}`,
+      `Written on Write or Lose · ${new Date().toLocaleDateString()}`,
+    ].join('\n');
+
+    const blob = new Blob([`${header}\n\n${plainPreview}\n`], {
+      type: 'text/plain;charset=utf-8',
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${(session.topic || 'writing').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'writing'}.txt`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -176,11 +226,24 @@ export default function ResultsPage() {
 
         {/* Preview */}
         <section aria-label="Your writing" className="mt-8 rounded-xl border border-line bg-surface">
-          <div className="border-b border-line px-6 py-4">
-            <h2 className="text-sm font-medium">Your writing</h2>
-            <p className="text-xs text-ink-faint">
-              Saved privately on this device — readable only by you unless published.
-            </p>
+          <div className="flex items-center justify-between border-b border-line px-6 py-4">
+            <div>
+              <h2 className="text-sm font-medium">Your writing</h2>
+              <p className="text-xs text-ink-faint">
+                Saved privately on this device — readable only by you unless published.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={downloadWriting}
+              title="Download as .txt"
+              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-line-strong bg-paper px-3 text-sm font-medium transition-colors hover:border-ink-faint"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M8 2v8m0 0 3-3m-3 3L5 7M2.5 12.5h11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Download
+            </button>
           </div>
           <div className="prose-reading max-h-96 overflow-y-auto px-6 py-6 text-ink-soft">
             {plainPreview || 'No words this time — it happens.'}
@@ -248,7 +311,7 @@ export default function ResultsPage() {
                     <Dot /> This will be posted publicly for anyone to read, forever.
                   </li>
                   <li className="flex gap-2.5">
-                    <Dot /> It appears with no name attached — truly anonymous, with no account involved.
+                    <Dot /> Your user id is never shown — the post stays fully anonymous.
                   </li>
                   <li className="flex gap-2.5">
                     <Dot /> Once public, you cannot edit or delete it in V1.
@@ -288,10 +351,17 @@ export default function ResultsPage() {
                     {publishError}
                   </p>
                 )}
+                {!username && (
+                  <p className="mt-4 rounded-lg border border-line bg-paper px-4 py-3 text-sm text-ink-muted">
+                    Publishing needs a user id — you&apos;ll be asked to{' '}
+                    <span className="font-medium text-ink">sign in or create one</span> in the
+                    next step. It&apos;s never shown publicly.
+                  </p>
+                )}
                 <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                   <button
                     type="button"
-                    onClick={handlePublish}
+                    onClick={attemptPublish}
                     className="h-11 flex-1 rounded-lg bg-accent px-5 text-sm font-medium text-white transition-colors hover:bg-red-800"
                   >
                     Publish anonymously
@@ -318,8 +388,8 @@ export default function ResultsPage() {
               <>
                 <h2 className="font-serif text-2xl">Published</h2>
                 <p className="mt-3 text-sm leading-relaxed text-ink-muted">
-                  Your writing is now live and anonymous — no name, no account, no trace back
-                  to you.
+                  Your writing is now live and anonymous — no name attached, nothing pointing
+                  back to you.
                 </p>
                 <div className="mt-6 flex flex-col gap-3 sm:flex-row">
                   <Link
@@ -340,6 +410,19 @@ export default function ResultsPage() {
           </section>
         )}
       </main>
+
+      {/* Account gate for publishing — resumes the publish after auth */}
+      <AuthDialog
+        open={authDialogOpen}
+        onClose={() => setAuthDialogOpen(false)}
+        onSuccess={(name) => {
+          setUsername(name);
+          setAuthDialogOpen(false);
+          handlePublish();
+        }}
+        title="One last step"
+        description="Publishing needs a user id — create one in seconds or sign in. Your identity is never attached to the public post."
+      />
     </div>
   );
 }

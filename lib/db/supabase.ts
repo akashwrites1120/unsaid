@@ -14,22 +14,23 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 let serverClient: SupabaseClient | null = null;
 
 /**
- * Server-side client using the service-role key. Lazy so that importing this
- * module never throws at build time when env vars are absent.
+ * Server-side client. Prefers the service-role key; falls back to the anon
+ * key, which the DB policies allow for anonymous read/write. Lazy so that
+ * importing this module never throws at build time when env vars are absent.
  */
 export function getServerSupabase(): SupabaseClient {
   if (serverClient) return serverClient;
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  if (!url || !serviceKey) {
+  if (!url || !key) {
     throw new Error(
-      'Missing Supabase configuration. Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.'
+      'Missing Supabase configuration. Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or NEXT_PUBLIC_SUPABASE_ANON_KEY).'
     );
   }
 
-  serverClient = createClient(url, serviceKey, {
+  serverClient = createClient(url, key, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,

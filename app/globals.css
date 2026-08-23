@@ -95,6 +95,8 @@ body {
   font-size: 1.125rem;
   line-height: 1.8;
   max-width: none;
+  /* Comfortable breathing room inside the writing board. */
+  padding: clamp(1.25rem, 4vw, 2rem);
 }
 
 .editor-content:focus,
