@@ -265,7 +265,7 @@ export default function ResultsPage() {
               onClick={() => setPublishStep('privacy')}
               className="inline-flex h-12 flex-1 items-center justify-center rounded-lg bg-ink px-6 text-base font-medium text-paper transition-colors hover:bg-ink-soft sm:flex-none sm:px-8"
             >
-              Share anonymously
+              Share
             </button>
             <button
               type="button"
@@ -371,7 +371,7 @@ export default function ResultsPage() {
                     onClick={attemptPublish}
                     className="h-11 flex-1 rounded-lg bg-accent px-5 text-sm font-medium text-white transition-colors hover:bg-red-800"
                   >
-                    Publish anonymously
+                    Publish
                   </button>
                   <button
                     type="button"

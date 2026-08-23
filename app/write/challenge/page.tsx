@@ -31,6 +31,9 @@ import { TipTapEditor } from '@/components/editor/TipTapEditor';
 
 type Phase = 'loading' | 'missing' | 'ready' | 'running' | 'failed';
 
+/** Extra attempts after the initial run ends in failure. */
+const EXTRA_TRIES = 2;
+
 export default function WritingChallengePage() {
   const router = useRouter();
 
@@ -40,6 +43,8 @@ export default function WritingChallengePage() {
   const [totalElapsedMs, setTotalElapsedMs] = useState(0);
   const [wpm, setWpm] = useState(0);
   const [announcement, setAnnouncement] = useState('');
+  /** Retries remaining after the current run fails. */
+  const [triesLeft, setTriesLeft] = useState(EXTRA_TRIES);
 
   // Mutable run bookkeeping (kept out of state to avoid re-render churn).
   const sessionRef = useRef<WritingSession | null>(null);
@@ -233,6 +238,7 @@ export default function WritingChallengePage() {
       baseElapsedRef.current += Date.now() - attemptStartRef.current;
     }
     announcedRef.current = 0;
+    setTriesLeft((t) => Math.max(0, t - 1));
     timer.reset();
     startAttempt();
   }, [timer, startAttempt]);
@@ -346,13 +352,13 @@ export default function WritingChallengePage() {
           </div>
         </section>
 
-        {/* Editor */}
+        {/* Editor — locked once the final attempt has failed */}
         <section aria-label="Writing area" className="rounded-xl border border-line bg-surface shadow-sm">
           <TipTapEditor
             initialContent={session.content ?? ''}
             onChange={handleChange}
             onActivity={handleActivity}
-            locked={false}
+            locked={phase === 'failed'}
             placeholder="Start typing to begin the timer…"
           />
         </section>
@@ -414,7 +420,9 @@ export default function WritingChallengePage() {
             aria-modal="true"
             aria-labelledby="fail-title"
             aria-describedby="fail-desc"
-            className="animate-shake w-full max-w-md rounded-xl border border-line bg-surface p-8 shadow-xl"
+            className={`w-full max-w-md rounded-xl border border-line bg-surface p-8 shadow-xl ${
+              triesLeft === 0 ? 'animate-shake' : ''
+            }`}
           >
             <p className="font-mono text-xs uppercase tracking-[0.2em] text-accent">Failed</p>
             <h2 id="fail-title" className="mt-2 font-serif text-3xl tracking-tight">
@@ -423,42 +431,82 @@ export default function WritingChallengePage() {
             <p id="fail-desc" className="mt-3 text-sm leading-relaxed text-ink-muted">
               You paused for more than{' '}
               <span className="font-mono tabular-nums">{Math.round(thresholdMs / 1000)}s</span>{' '}
-              in {mode.label.toLowerCase()} mode. Your writing is safe — nothing is deleted,
-              ever.
+              in {mode.label.toLowerCase()} mode. Nothing was sent anywhere — your words stay
+              on this device.
             </p>
-            <dl className="mt-6 grid grid-cols-3 gap-3 rounded-lg border border-line bg-paper px-4 py-3 text-center">
-              <div>
-                <dt className="text-xs text-ink-muted">Words</dt>
-                <dd className="font-mono text-lg tabular-nums">{words}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-ink-muted">Time</dt>
-                <dd className="font-mono text-lg tabular-nums">
-                  {formatElapsed(totalElapsedMs)}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs text-ink-muted">Mode</dt>
-                <dd className="text-lg">{mode.label}</dd>
-              </div>
-            </dl>
-            <div className="mt-7 flex flex-col gap-2.5 sm:flex-row-reverse">
-              <button
-                ref={tryAgainButtonRef}
-                type="button"
-                onClick={tryAgain}
-                className="inline-flex h-11 flex-1 items-center justify-center rounded-lg bg-ink px-5 text-sm font-medium text-paper transition-colors hover:bg-ink-soft"
-              >
-                Try again
-              </button>
-              <button
-                type="button"
-                onClick={() => finalizeAndNavigate('failed')}
-                className="inline-flex h-11 flex-1 items-center justify-center rounded-lg border border-line-strong bg-surface px-5 text-sm font-medium transition-colors hover:border-ink-faint"
-              >
-                Save &amp; see results
-              </button>
-            </div>
+
+            {triesLeft > 0 ? (
+              <>
+                <p className="mt-4 rounded-lg border border-line bg-paper px-4 py-3 text-sm font-medium text-ink">
+                  {triesLeft} more {triesLeft === 1 ? 'try' : 'tries'} left — take another shot.
+                </p>
+                <dl className="mt-6 grid grid-cols-3 gap-3 rounded-lg border border-line bg-paper px-4 py-3 text-center">
+                  <div>
+                    <dt className="text-xs text-ink-muted">Words</dt>
+                    <dd className="font-mono text-lg tabular-nums">{words}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-ink-muted">Time</dt>
+                    <dd className="font-mono text-lg tabular-nums">
+                      {formatElapsed(totalElapsedMs)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-ink-muted">Mode</dt>
+                    <dd className="text-lg">{mode.label}</dd>
+                  </div>
+                </dl>
+                <div className="mt-7 flex flex-col gap-2.5 sm:flex-row-reverse">
+                  <button
+                    ref={tryAgainButtonRef}
+                    type="button"
+                    onClick={tryAgain}
+                    className="inline-flex h-11 flex-1 items-center justify-center rounded-lg bg-ink px-5 text-sm font-medium text-paper transition-colors hover:bg-ink-soft"
+                  >
+                    Try again
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => finalizeAndNavigate('failed')}
+                    className="inline-flex h-11 flex-1 items-center justify-center rounded-lg border border-line-strong bg-surface px-5 text-sm font-medium transition-colors hover:border-ink-faint"
+                  >
+                    Save &amp; see results
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="mt-4 rounded-lg border border-accent/30 bg-accent-soft px-4 py-3 text-sm font-medium text-accent">
+                  That was your last try — the writing below is now locked.
+                </p>
+                <dl className="mt-6 grid grid-cols-3 gap-3 rounded-lg border border-line bg-paper px-4 py-3 text-center">
+                  <div>
+                    <dt className="text-xs text-ink-muted">Words</dt>
+                    <dd className="font-mono text-lg tabular-nums">{words}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-ink-muted">Time</dt>
+                    <dd className="font-mono text-lg tabular-nums">
+                      {formatElapsed(totalElapsedMs)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-ink-muted">Mode</dt>
+                    <dd className="text-lg">{mode.label}</dd>
+                  </div>
+                </dl>
+                <div className="mt-7 flex flex-col gap-2.5 sm:flex-row-reverse">
+                  <button
+                    ref={tryAgainButtonRef}
+                    type="button"
+                    onClick={() => finalizeAndNavigate('failed')}
+                    className="inline-flex h-11 flex-1 items-center justify-center rounded-lg bg-ink px-5 text-sm font-medium text-paper transition-colors hover:bg-ink-soft"
+                  >
+                    See results
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

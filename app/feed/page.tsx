@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Public feed of anonymously published writings.
+ * Public feed of published writings.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
