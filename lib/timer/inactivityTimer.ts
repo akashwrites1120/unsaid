@@ -55,7 +55,9 @@ export function createInactivityTimer(options: TimerOptions) {
   function tick(timestamp: number) {
     if (state.status !== 'running') return;
 
-    const elapsed = timestamp - startTime - state.totalPausedMs;
+    // Clamp at 0 — clock skew or stale frames must never make "remaining"
+    // exceed the threshold.
+    const elapsed = Math.max(0, timestamp - startTime - state.totalPausedMs);
     state.elapsedMs = elapsed;
     state.remainingMs = Math.max(0, thresholdMs - elapsed);
 
@@ -63,6 +65,7 @@ export function createInactivityTimer(options: TimerOptions) {
 
     if (state.remainingMs <= 0) {
       updateStatus('failed');
+      animationFrameId = null;
       onFail?.();
       return;
     }
@@ -83,6 +86,13 @@ export function createInactivityTimer(options: TimerOptions) {
       state.remainingMs = thresholdMs;
       state.elapsedMs = 0;
       state.totalPausedMs = 0;
+    }
+
+    // A stale frame may still be pending from a previous run's teardown —
+    // never allow two tick loops at once.
+    if (animationFrameId !== null) {
+      cancelAnimationFrame(animationFrameId);
+      animationFrameId = null;
     }
 
     startTime = now;
@@ -112,11 +122,18 @@ export function createInactivityTimer(options: TimerOptions) {
   }
 
   function reset() {
-    if (state.status === 'running') {
-      const now = performance.now();
-      state.totalPausedMs += now - startTime;
+    // Cancel any pending frame first — repeated resets (one per keystroke)
+    // must never stack parallel tick loops.
+    if (animationFrameId !== null) {
+      cancelAnimationFrame(animationFrameId);
+      animationFrameId = null;
     }
 
+    // Fresh anchor: everything before "now" stops counting. Advancing
+    // startTime AND accumulating the skipped span into totalPausedMs would
+    // double-subtract once the next frame fires, pushing remaining ABOVE
+    // the threshold.
+    state.totalPausedMs = 0;
     state.remainingMs = thresholdMs;
     state.elapsedMs = 0;
     state.lastResetAt = performance.now();
