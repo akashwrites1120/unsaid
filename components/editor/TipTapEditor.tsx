@@ -4,20 +4,19 @@
  * Distraction-free writing surface. Paste and drop are disabled — words must
  * be typed.
  *
- * Activity detection (NFR-7 / Phase 4.1) is layered so unreliable mobile
- * soft keyboards and IME composition can't cause unfair failures:
- *   1. TipTap transaction updates (any doc change: typing, IME commit)
- *   2. Native `input` events captured at the wrapper (some Android IMEs fire
- *      input without usable keydown values)
- *   3. Composition start/end (CJK / IME flows)
- *   4. keydown for printable + editing keys
- * The challenge page additionally listens at window level as a final net.
+ * Activity detection (NFR-7 / Phase 4.1) only counts REAL WRITES — content
+ * actually changing in the pad. Arrow keys, shortcuts, modifier keys, and
+ * clicks never reset the countdown:
+ *   1. TipTap transaction updates (any doc change: typing, IME commit, cut)
+ *   2. Native `input` events captured at the wrapper (backup for Android
+ *      soft keyboards that mutate text without a usable transaction)
+ *   3. Composition start/update/end (CJK / IME flows produce visible text)
  */
 
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
-import { useCallback, useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 
 interface TipTapEditorProps {
   initialContent?: string;
@@ -78,58 +77,32 @@ export function TipTapEditor({
     }
   }, [editor, locked]);
 
-  // Native capture-phase listeners cover input paths React may miss on
-  // mobile (e.g. soft keyboards firing `input` without meaningful keys).
+  // Native capture-phase `input` listener covers text mutations React/TipTap
+  // may miss on mobile (e.g. soft keyboards mutating the DOM directly).
+  // Key events are deliberately NOT activity — only writes count.
   useEffect(() => {
     const dom = editor?.view.dom;
     if (!dom) return;
 
     const fire = () => onActivityRef.current?.();
 
-    const handleKeydown = (e: Event) => {
-      const key = (e as KeyboardEvent).key;
-      if (key.length === 1 || key === 'Backspace' || key === 'Delete' || key === 'Enter') {
-        fire();
-      }
-    };
-
-    // Pasting is disabled — words must be typed. Capture phase so this wins
-    // over TipTap's own clipboard handling.
-    const blockClipboard = (e: Event) => {
-      e.preventDefault();
-      e.stopPropagation();
-    };
-
     dom.addEventListener('input', fire, true);
     dom.addEventListener('compositionstart', fire, true);
     dom.addEventListener('compositionupdate', fire, true);
     dom.addEventListener('compositionend', fire, true);
-    dom.addEventListener('keydown', handleKeydown, true);
-    dom.addEventListener('paste', blockClipboard, true);
-    dom.addEventListener('drop', blockClipboard, true);
-    dom.addEventListener('cut', fire, true);
 
     return () => {
       dom.removeEventListener('input', fire, true);
       dom.removeEventListener('compositionstart', fire, true);
       dom.removeEventListener('compositionupdate', fire, true);
       dom.removeEventListener('compositionend', fire, true);
-      dom.removeEventListener('keydown', handleKeydown, true);
-      dom.removeEventListener('paste', blockClipboard, true);
-      dom.removeEventListener('drop', blockClipboard, true);
-      dom.removeEventListener('cut', fire, true);
     };
   }, [editor]);
 
-  // Wrapper-level net for paste/drop attempts that bypass the editor DOM.
-  const blockClipboardEvent = useCallback((e: React.SyntheticEvent) => {
-    e.preventDefault();
-  }, []);
-
   return (
     <div
-      onPaste={blockClipboardEvent}
-      onDrop={blockClipboardEvent}
+      onPaste={(e) => e.preventDefault()}
+      onDrop={(e) => e.preventDefault()}
       data-testid="writing-editor"
       className="h-full"
     >

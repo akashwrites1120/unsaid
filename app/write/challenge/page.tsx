@@ -186,24 +186,13 @@ export default function WritingChallengePage() {
   }, [timer]);
 
   /**
-   * Central activity handler. Starts the run lazily on first input and keeps
-   * the countdown alive afterwards.
+   * Central activity handler. Starts the run lazily on the first real write
+   * and keeps the countdown alive afterwards.
    */
   const handleActivity = useCallback(() => {
     if (phaseRef.current === 'ready') startAttempt();
     else if (phaseRef.current === 'running') timer.activity();
   }, [startAttempt, timer]);
-
-  // Window-level safety net: while running, ANY interaction anywhere counts
-  // (covers soft keyboards and IMEs that bypass editor events entirely).
-  useEffect(() => {
-    if (phase !== 'running') return;
-
-    const events = ['keydown', 'pointerdown', 'touchstart', 'paste', 'input'] as const;
-    const onNet = () => timer.activity();
-    events.forEach((evt) => window.addEventListener(evt, onNet, { passive: true }));
-    return () => events.forEach((evt) => window.removeEventListener(evt, onNet));
-  }, [phase, timer]);
 
   // Urgency announcements — only at meaningful thresholds, not every second.
   const remainingSec = Number(formattedRemaining);
@@ -233,15 +222,19 @@ export default function WritingChallengePage() {
   );
 
   const tryAgain = useCallback(() => {
-    // Bank the failed attempt's time, then restart the countdown.
+    // Bank the failed attempt's time, then arm the next try. The countdown
+    // only starts once the user actually writes again (lazy start).
     if (attemptStartRef.current > 0) {
       baseElapsedRef.current += Date.now() - attemptStartRef.current;
     }
+    attemptStartRef.current = 0;
     announcedRef.current = 0;
     setTriesLeft((t) => Math.max(0, t - 1));
     timer.reset();
-    startAttempt();
-  }, [timer, startAttempt]);
+    phaseRef.current = 'ready';
+    setPhase('ready');
+    setAnnouncement('Ready — the countdown starts when you write.');
+  }, [timer]);
 
   const mode = getChallengeMode(session?.mode ?? 'focus');
   const thresholdMs = mode.inactivityThresholdMs;

@@ -67,6 +67,9 @@ export function useInactivityTimer(
       },
     });
     timerRef.current = timer;
+    // Push the initial snapshot so the UI shows the full threshold while
+    // waiting for the first write (instead of a stale idle zero).
+    setState(timer.getState());
 
     return () => {
       timer.destroy();
