@@ -158,3 +158,40 @@ export function clearSessionFromStorage(): void {
     console.error('Failed to clear session:', error);
   }
 }
+
+/**
+ * Remaining challenge tries, persisted per-run so a page refresh can't
+ * reset the counter mid-challenge. Keyed by run id (`startedAt-mode`) —
+ * a brand-new challenge gets a fresh id and therefore fresh tries.
+ */
+const TRIES_KEY = 'challenge-tries';
+
+export function saveTriesLeft(runId: string, triesLeft: number): void {
+  try {
+    sessionStorage.setItem(TRIES_KEY, JSON.stringify({ runId, triesLeft }));
+  } catch (error) {
+    console.error('Failed to save tries:', error);
+  }
+}
+
+/** Stored tries for this exact run, or null when absent/stale/mismatched. */
+export function loadTriesLeft(runId: string): number | null {
+  try {
+    const raw = sessionStorage.getItem(TRIES_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { runId?: string; triesLeft?: number };
+    if (parsed.runId !== runId || typeof parsed.triesLeft !== 'number') return null;
+    return Math.max(0, Math.floor(parsed.triesLeft));
+  } catch (error) {
+    console.error('Failed to load tries:', error);
+    return null;
+  }
+}
+
+export function clearTriesLeft(): void {
+  try {
+    sessionStorage.removeItem(TRIES_KEY);
+  } catch (error) {
+    console.error('Failed to clear tries:', error);
+  }
+}

@@ -71,9 +71,12 @@ export function TipTapEditor({
   });
 
   // Keep editability in sync without recreating the editor.
+  // NOTE: TipTap v3's setEditable emits an "update" event by DEFAULT — which
+  // our onUpdate treats as writing activity and would auto-start/restart the
+  // countdown. Pass emitUpdate=false: toggling editability is NOT a write.
   useEffect(() => {
     if (editor && editor.isEditable === locked) {
-      editor.setEditable(!locked);
+      editor.setEditable(!locked, false);
     }
   }, [editor, locked]);
 

@@ -59,7 +59,7 @@ export default function LandingPage() {
             href="/"
             className="font-mono text-sm font-semibold tracking-[0.18em] text-ink"
           >
-            WRITE<span className="text-accent">·</span>OR<span className="text-accent">·</span>LOSE
+            UNSAID
           </Link>
           <nav aria-label="Primary" className="flex items-center gap-5 text-sm sm:gap-6">
             <Link href="/feed" className="text-ink-muted transition-colors hover:text-ink">
@@ -274,7 +274,7 @@ export default function LandingPage() {
       <footer className="border-t border-line">
         <div className="mx-auto flex w-full max-w-6xl flex-col items-center justify-between gap-2 px-6 py-6 text-sm text-ink-muted sm:flex-row">
           <span className="font-mono text-xs font-semibold tracking-[0.18em]">
-            WRITE<span className="text-accent">·</span>OR<span className="text-accent">·</span>LOSE
+            UNSAID
           </span>
           <span>Writing is free. Publishing needs a user id — posts show it proudly.</span>
         </div>

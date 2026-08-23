@@ -20,10 +20,13 @@ import { formatElapsed } from '@/lib/timer/inactivityTimer';
 import { getChallengeMode } from '@/lib/config/challengeModes';
 import { publishConfig } from '@/lib/config/publishConfig';
 import {
+  clearTriesLeft,
   createDebouncedSave,
   loadSessionFromStorage,
+  loadTriesLeft,
   saveDraft,
   saveSessionToStorage,
+  saveTriesLeft,
   type WritingSession,
 } from '@/lib/storage/draftStorage';
 import { countWords } from '@/lib/utils/text';
@@ -52,6 +55,8 @@ export default function WritingChallengePage() {
   const attemptStartRef = useRef(0); // epoch ms when current attempt began
   const baseElapsedRef = useRef(0); // ms accumulated across finished attempts
   const phaseRef = useRef<Phase>('loading');
+  /** Identity of the current run — ties the persisted tries counter to it. */
+  const runIdRef = useRef('');
 
   const persistSession = useCallback(() => {
     if (!sessionRef.current) return;
@@ -82,6 +87,11 @@ export default function WritingChallengePage() {
       setWords(saved.wordCount || countWords(contentRef.current));
       setTotalElapsedMs(baseElapsedRef.current);
       setPhase('ready');
+
+      // Restore the try counter for THIS run so refreshes can't reset it.
+      runIdRef.current = `${saved.startedAt}-${saved.mode}`;
+      const storedTries = loadTriesLeft(runIdRef.current);
+      setTriesLeft(storedTries ?? EXTRA_TRIES);
 
       debouncedSaveRef.current = createDebouncedSave(() => {
         const s = sessionRef.current;
@@ -156,6 +166,9 @@ export default function WritingChallengePage() {
         status: status === 'completed' ? 'completed' : 'failed',
       }).catch((err) => console.error('Draft save failed:', err));
 
+      // The run is over — its try counter no longer applies.
+      clearTriesLeft();
+
       router.push('/write/results');
     },
     [router]
@@ -229,12 +242,14 @@ export default function WritingChallengePage() {
     }
     attemptStartRef.current = 0;
     announcedRef.current = 0;
-    setTriesLeft((t) => Math.max(0, t - 1));
+    const next = Math.max(0, triesLeft - 1);
+    setTriesLeft(next);
+    if (runIdRef.current) saveTriesLeft(runIdRef.current, next);
     timer.reset();
     phaseRef.current = 'ready';
     setPhase('ready');
     setAnnouncement('Ready — the countdown starts when you write.');
-  }, [timer]);
+  }, [timer, triesLeft]);
 
   const mode = getChallengeMode(session?.mode ?? 'focus');
   const thresholdMs = mode.inactivityThresholdMs;
