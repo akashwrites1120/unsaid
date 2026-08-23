@@ -1,14 +1,15 @@
 'use client';
 
 /**
- * Public reading view for one anonymously published writing.
+ * Public reading view for one published writing.
  */
 
-import { use, useCallback, useEffect, useState } from 'react';
+import { use, useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { categories } from '@/lib/config/categories';
 import { getChallengeMode, type ChallengeModeKey } from '@/lib/config/challengeModes';
 import { formatDistanceToNow } from 'date-fns';
+import { AuthDialog } from '@/components/auth/AuthDialog';
 
 interface Writing {
   id: string;
@@ -18,17 +19,18 @@ interface Writing {
   challengeMode: ChallengeModeKey;
   challengeDuration: number;
   createdAt: string;
+  authorUsername?: string | null;
 }
 
 type ReactionType = 'heart' | 'clap' | 'mind_blown' | 'relate';
 
 type Counts = Record<ReactionType | 'total', number>;
 
-const REACTIONS: { type: ReactionType; label: string }[] = [
-  { type: 'heart', label: 'Heart' },
-  { type: 'clap', label: 'Clap' },
-  { type: 'mind_blown', label: 'Mind blown' },
-  { type: 'relate', label: 'Relate' },
+const REACTIONS: { type: ReactionType; emoji: string; label: string }[] = [
+  { type: 'heart', emoji: '❤️', label: 'Heart' },
+  { type: 'clap', emoji: '👏', label: 'Clap' },
+  { type: 'mind_blown', emoji: '🤯', label: 'Mind blown' },
+  { type: 'relate', emoji: '🤝', label: 'Relate' },
 ];
 
 export default function WritingDetailPage({
@@ -44,8 +46,11 @@ export default function WritingDetailPage({
   const [error, setError] = useState<string | null>(null);
 
   const [counts, setCounts] = useState<Counts | null>(null);
-  // This browser's active reactions (mirrored by a session fingerprint server-side).
-  const [reacted, setReacted] = useState<Set<ReactionType>>(new Set());
+  /** The signed-in user's single reaction on this writing (or null). */
+  const [myReaction, setMyReaction] = useState<ReactionType | null>(null);
+  const [signedIn, setSignedIn] = useState(false);
+  const [authDialogOpen, setAuthDialogOpen] = useState(false);
+  const pendingReactionRef = useRef<ReactionType | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,10 +72,19 @@ export default function WritingDetailPage({
         if (cancelled) return;
         setWriting(data);
 
-        const reactionsResponse = await fetch(`/api/writings/${id}/reactions`);
-        if (reactionsResponse.ok && !cancelled) {
+        // Reactions + session in parallel.
+        const [reactionsResponse, meResponse] = await Promise.all([
+          fetch(`/api/writings/${id}/reactions`),
+          fetch('/api/auth/me'),
+        ]);
+        if (!cancelled && reactionsResponse.ok) {
           const reactionsData = await reactionsResponse.json();
           setCounts(reactionsData.counts);
+          setMyReaction(reactionsData.myReaction ?? null);
+        }
+        if (!cancelled && meResponse.ok) {
+          const meData = await meResponse.json().catch(() => null);
+          setSignedIn(Boolean(meData?.user));
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Something went wrong.');
@@ -89,21 +103,32 @@ export default function WritingDetailPage({
     async (type: ReactionType) => {
       if (!counts) return;
 
-      const hadReacted = reacted.has(type);
+      // Sign-in gate — remember what the user wanted and open the dialog.
+      if (!signedIn && !myReaction) {
+        pendingReactionRef.current = type;
+        setAuthDialogOpen(true);
+        return;
+      }
+
+      const isToggleOff = myReaction === type;
       const previousCounts = counts;
-      const previousReacted = reacted;
-      const nextReacted = new Set(reacted);
+      const previousReaction = myReaction;
 
       let optimistic: Counts;
-      if (hadReacted) {
-        nextReacted.delete(type);
+      if (isToggleOff) {
         optimistic = {
           ...counts,
           [type]: Math.max(0, counts[type] - 1),
           total: Math.max(0, counts.total - 1),
         };
+      } else if (myReaction) {
+        // Switching emoji — total stays the same.
+        optimistic = {
+          ...counts,
+          [type]: counts[type] + 1,
+          [myReaction]: Math.max(0, counts[myReaction] - 1),
+        };
       } else {
-        nextReacted.add(type);
         optimistic = {
           ...counts,
           [type]: counts[type] + 1,
@@ -111,27 +136,25 @@ export default function WritingDetailPage({
         };
       }
 
-      setReacted(nextReacted);
+      setMyReaction(isToggleOff ? null : type);
       setCounts(optimistic);
 
       try {
         const response = await fetch(`/api/writings/${id}/reactions`, {
-          method: hadReacted ? 'DELETE' : 'POST',
+          method: isToggleOff ? 'DELETE' : 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ reactionType: type }),
         });
-        if (response.ok) {
-          const data = await response.json();
-          setCounts(data.counts);
-        } else {
-          throw new Error('Request failed');
-        }
+        if (!response.ok) throw new Error('Request failed');
+        const data = await response.json();
+        setCounts(data.counts);
+        setMyReaction(data.myReaction ?? null);
       } catch {
-        setReacted(previousReacted);
+        setMyReaction(previousReaction);
         setCounts(previousCounts);
       }
     },
-    [counts, id, reacted]
+    [counts, id, myReaction, signedIn]
   );
 
   if (loading) {
@@ -169,6 +192,9 @@ export default function WritingDetailPage({
   const category = categories[writing.category];
   const mode = getChallengeMode(writing.challengeMode);
   const minutes = Math.max(1, Math.round(writing.challengeDuration / 60_000));
+  const authorName = writing.authorUsername
+    ? `@${writing.authorUsername}`
+    : 'Unknown writer';
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -199,7 +225,7 @@ export default function WritingDetailPage({
           <span className="rounded-full bg-surface px-3 py-1 font-medium text-ink-soft ring-1 ring-line">
             {category?.label ?? 'Other'}
           </span>
-          <time dateTime={writing.createdAt}>
+          <time dateTime={writing.createdAt} suppressHydrationWarning>
             Published {formatDistanceToNow(new Date(writing.createdAt), { addSuffix: true })}
           </time>
           <span aria-hidden="true">·</span>
@@ -212,12 +238,12 @@ export default function WritingDetailPage({
         <h1 className="mt-6 flex items-center gap-3 text-lg">
           <span
             aria-hidden="true"
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-paper font-mono text-sm text-ink-muted ring-1 ring-line"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-soft font-mono text-sm font-semibold text-accent ring-1 ring-line"
           >
-            ?
+            {(writing.authorUsername ?? '?').charAt(0).toUpperCase()}
           </span>
           <span>
-            Anonymous writer
+            {authorName}
             <span className="block text-xs font-normal text-ink-faint">
               Wrote under pressure. Chose to share.
             </span>
@@ -233,20 +259,27 @@ export default function WritingDetailPage({
         {counts && (
           <section aria-label="Reactions" className="mt-14 border-t border-line pt-8">
             <p className="text-sm text-ink-muted">How did this land for you?</p>
+            {!signedIn && !myReaction && (
+              <p className="mt-1.5 text-xs text-ink-faint">
+                Sign in to leave a reaction — one per person.
+              </p>
+            )}
             <div className="mt-4 flex flex-wrap gap-2">
-              {REACTIONS.map(({ type, label }) => (
+              {REACTIONS.map(({ type, emoji, label }) => (
                 <button
                   key={type}
                   type="button"
                   onClick={() => react(type)}
-                  aria-pressed={reacted.has(type)}
-                  className={`inline-flex h-10 items-center gap-2 rounded-full border px-4 text-sm transition-colors ${
-                    reacted.has(type)
+                  aria-pressed={myReaction === type}
+                  aria-label={`${label} (${counts[type]})`}
+                  title={label}
+                  className={`inline-flex h-10 items-center gap-2 rounded-full border px-4 transition-colors ${
+                    myReaction === type
                       ? 'border-ink bg-ink text-paper'
                       : 'border-line-strong bg-surface text-ink-muted hover:border-ink-faint hover:text-ink'
                   }`}
                 >
-                  {label}
+                  <span aria-hidden="true">{emoji}</span>
                   <span className="font-mono text-xs tabular-nums opacity-80">
                     {counts[type]}
                   </span>
@@ -270,6 +303,24 @@ export default function WritingDetailPage({
           </Link>
         </footer>
       </main>
+
+      {/* Sign-in gate for reactions — resumes the click after auth */}
+      <AuthDialog
+        open={authDialogOpen}
+        onClose={() => {
+          setAuthDialogOpen(false);
+          pendingReactionRef.current = null;
+        }}
+        onSuccess={() => {
+          setSignedIn(true);
+          setAuthDialogOpen(false);
+          const pending = pendingReactionRef.current;
+          pendingReactionRef.current = null;
+          if (pending) react(pending);
+        }}
+        title="Sign in to react"
+        description="Reactions are tied to accounts so everyone gets exactly one. It takes seconds."
+      />
     </div>
   );
 }

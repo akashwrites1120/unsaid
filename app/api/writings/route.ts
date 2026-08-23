@@ -153,7 +153,8 @@ const DEFAULT_PAGE_LIMIT = 12;
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const category = searchParams.get('category') as CategoryKey | null;
+    // Normalize empty-string params to null so validation and filters agree.
+    const category = (searchParams.get('category') || null) as CategoryKey | null;
     const sort = searchParams.get('sort') === 'popular' ? 'popular' : 'recent';
     const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10) || 1);
     const limit = Math.min(50, Math.max(1, parseInt(searchParams.get('limit') ?? String(DEFAULT_PAGE_LIMIT), 10) || DEFAULT_PAGE_LIMIT));
@@ -178,6 +179,7 @@ export async function GET(request: NextRequest) {
       challengeDuration: row.challenge_duration,
       createdAt: row.created_at,
       reactionCount: Number(row.total_reactions ?? 0),
+      authorUsername: row.author_username ?? 'unknown',
     }));
 
     return NextResponse.json({

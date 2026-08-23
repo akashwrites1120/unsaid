@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimiter';
+import { getSessionUser } from '@/lib/auth/server';
 import {
   addReaction,
   getReactionCounts,
+  getUserReaction,
   reactionTypes,
   removeReaction,
   type ReactionType,
@@ -10,28 +12,11 @@ import {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/**
- * Anonymous session fingerprint: a coarse hash of stable request headers.
- * Deliberately non-identifying — it only prevents duplicate reactions from
- * the same browser and stores nothing about the visitor.
- */
-function sessionFingerprint(request: NextRequest): string {
-  const combined = [
-    request.headers.get('user-agent') ?? '',
-    request.headers.get('accept-language') ?? '',
-  ].join('|');
-
-  let hash = 5381;
-  for (let i = 0; i < combined.length; i++) {
-    hash = (hash * 33) ^ combined.charCodeAt(i);
-  }
-  return (hash >>> 0).toString(36);
-}
-
 function parseId(id: string): string | null {
   return UUID_RE.test(id) ? id : null;
 }
 
+/** Public: everyone can see totals; a signed-in visitor also gets their own. */
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -44,7 +29,14 @@ export async function GET(
     }
 
     const counts = await getReactionCounts(writingId);
-    return NextResponse.json({ counts });
+
+    let myReaction: ReactionType | null = null;
+    const user = await getSessionUser(request);
+    if (user) {
+      myReaction = await getUserReaction(writingId, user.id);
+    }
+
+    return NextResponse.json({ counts, myReaction });
   } catch (error) {
     console.error('Error fetching reactions:', error);
     return NextResponse.json({ error: 'Failed to load reactions.' }, { status: 500 });
@@ -65,6 +57,20 @@ export async function POST(
       return NextResponse.json({ error: 'Slow down a little.' }, { status: 429 });
     }
 
+    // Reacting requires an account.
+    let user;
+    try {
+      user = await getSessionUser(request);
+    } catch {
+      return NextResponse.json({ error: 'Could not verify your session. Please sign in again.' }, { status: 500 });
+    }
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Sign in to react.', code: 'AUTH_REQUIRED' },
+        { status: 401 }
+      );
+    }
+
     const { id } = await params;
     const writingId = parseId(id);
     if (!writingId) {
@@ -77,10 +83,10 @@ export async function POST(
       return NextResponse.json({ error: 'Invalid reaction type.' }, { status: 400 });
     }
 
-    const result = await addReaction(writingId, reactionType, sessionFingerprint(request));
+    const result = await addReaction(writingId, reactionType, user.id);
     const counts = await getReactionCounts(writingId);
 
-    return NextResponse.json({ counts, result });
+    return NextResponse.json({ counts, myReaction: reactionType, result });
   } catch (error) {
     console.error('Error adding reaction:', error);
     return NextResponse.json({ error: 'Failed to react.' }, { status: 500 });
@@ -101,22 +107,29 @@ export async function DELETE(
       return NextResponse.json({ error: 'Slow down a little.' }, { status: 429 });
     }
 
+    let user;
+    try {
+      user = await getSessionUser(request);
+    } catch {
+      return NextResponse.json({ error: 'Could not verify your session. Please sign in again.' }, { status: 500 });
+    }
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Sign in to react.', code: 'AUTH_REQUIRED' },
+        { status: 401 }
+      );
+    }
+
     const { id } = await params;
     const writingId = parseId(id);
     if (!writingId) {
       return NextResponse.json({ error: 'Writing not found' }, { status: 404 });
     }
 
-    const body = await request.json().catch(() => null);
-    const reactionType = body?.reactionType as ReactionType | undefined;
-    if (!reactionType || !reactionTypes.includes(reactionType)) {
-      return NextResponse.json({ error: 'Invalid reaction type.' }, { status: 400 });
-    }
-
-    await removeReaction(writingId, reactionType, sessionFingerprint(request));
+    await removeReaction(writingId, user.id);
     const counts = await getReactionCounts(writingId);
 
-    return NextResponse.json({ counts });
+    return NextResponse.json({ counts, myReaction: null });
   } catch (error) {
     console.error('Error removing reaction:', error);
     return NextResponse.json({ error: 'Failed to remove reaction.' }, { status: 500 });

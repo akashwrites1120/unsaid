@@ -1,16 +1,16 @@
 'use client';
 
 /**
- * Distraction-free writing surface.
+ * Distraction-free writing surface. Paste and drop are disabled — words must
+ * be typed.
  *
  * Activity detection (NFR-7 / Phase 4.1) is layered so unreliable mobile
  * soft keyboards and IME composition can't cause unfair failures:
- *   1. TipTap transaction updates (any doc change: typing, paste, IME commit)
+ *   1. TipTap transaction updates (any doc change: typing, IME commit)
  *   2. Native `input` events captured at the wrapper (some Android IMEs fire
  *      input without usable keydown values)
  *   3. Composition start/end (CJK / IME flows)
  *   4. keydown for printable + editing keys
- *   5. paste (with a trailing tick so post-paste state settles)
  * The challenge page additionally listens at window level as a final net.
  */
 
@@ -92,14 +92,21 @@ export function TipTapEditor({
         fire();
       }
     };
-    const handlePaste = () => setTimeout(fire, 0);
+
+    // Pasting is disabled — words must be typed. Capture phase so this wins
+    // over TipTap's own clipboard handling.
+    const blockClipboard = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
 
     dom.addEventListener('input', fire, true);
     dom.addEventListener('compositionstart', fire, true);
     dom.addEventListener('compositionupdate', fire, true);
     dom.addEventListener('compositionend', fire, true);
     dom.addEventListener('keydown', handleKeydown, true);
-    dom.addEventListener('paste', handlePaste, true);
+    dom.addEventListener('paste', blockClipboard, true);
+    dom.addEventListener('drop', blockClipboard, true);
     dom.addEventListener('cut', fire, true);
 
     return () => {
@@ -108,18 +115,21 @@ export function TipTapEditor({
       dom.removeEventListener('compositionupdate', fire, true);
       dom.removeEventListener('compositionend', fire, true);
       dom.removeEventListener('keydown', handleKeydown, true);
-      dom.removeEventListener('paste', handlePaste, true);
+      dom.removeEventListener('paste', blockClipboard, true);
+      dom.removeEventListener('drop', blockClipboard, true);
       dom.removeEventListener('cut', fire, true);
     };
   }, [editor]);
 
-  const handleWrapperPaste = useCallback(() => {
-    setTimeout(() => onActivityRef.current?.(), 0);
+  // Wrapper-level net for paste/drop attempts that bypass the editor DOM.
+  const blockClipboardEvent = useCallback((e: React.SyntheticEvent) => {
+    e.preventDefault();
   }, []);
 
   return (
     <div
-      onPaste={handleWrapperPaste}
+      onPaste={blockClipboardEvent}
+      onDrop={blockClipboardEvent}
       data-testid="writing-editor"
       className="h-full"
     >

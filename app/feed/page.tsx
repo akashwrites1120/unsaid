@@ -20,6 +20,7 @@ interface FeedWriting {
   challengeDuration: number;
   createdAt: string;
   reactionCount: number;
+  authorUsername?: string | null;
 }
 
 interface Pagination {
@@ -223,7 +224,7 @@ export default function FeedPage() {
 
       <footer className="border-t border-line">
         <div className="mx-auto w-full max-w-3xl px-4 py-6 text-center text-xs text-ink-muted sm:px-6 sm:text-left">
-          Every piece was written under pressure and shared anonymously by choice.
+          Every piece was written under pressure and shared by choice.
         </div>
       </footer>
     </div>
@@ -248,7 +249,6 @@ function CategoryChip({ label, active, onClick }: { label: string; active: boole
 }
 
 function FeedCard({ writing, showReactions }: { writing: FeedWriting; showReactions: boolean }) {
-  const category = categories[writing.category];
   const mode = getChallengeMode(writing.challengeMode);
 
   return (
@@ -258,10 +258,16 @@ function FeedCard({ writing, showReactions }: { writing: FeedWriting; showReacti
         className="block rounded-xl border border-line bg-surface p-5 transition-colors hover:border-ink-faint sm:p-6"
       >
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-muted">
-          <span className="rounded-full bg-paper px-2.5 py-0.5 font-medium text-ink-soft ring-1 ring-line">
-            {category?.label ?? 'Other'}
+          <span className="inline-flex items-center gap-1.5 font-medium text-ink">
+            <span
+              aria-hidden="true"
+              className="flex h-5 w-5 items-center justify-center rounded-full bg-accent-soft font-mono text-[10px] font-semibold text-accent ring-1 ring-line"
+            >
+              {(writing.authorUsername ?? '?').charAt(0).toUpperCase()}
+            </span>
+            @{writing.authorUsername ?? 'unknown'}
           </span>
-          <time dateTime={writing.createdAt}>
+          <time dateTime={writing.createdAt} suppressHydrationWarning>
             {formatDistanceToNow(new Date(writing.createdAt), { addSuffix: true })}
           </time>
           <span aria-hidden="true">·</span>

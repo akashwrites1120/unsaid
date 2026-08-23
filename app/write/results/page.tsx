@@ -145,6 +145,13 @@ export default function ResultsPage() {
 
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
+        // Session expired mid-flow — reopen the account gate instead of dead-ending.
+        if (data.code === 'AUTH_REQUIRED') {
+          setPublishStep('confirm');
+          setUsername(null);
+          setAuthDialogOpen(true);
+          return;
+        }
         throw new Error(data.error || 'Publishing failed. Please try again.');
       }
 
@@ -311,7 +318,7 @@ export default function ResultsPage() {
                     <Dot /> This will be posted publicly for anyone to read, forever.
                   </li>
                   <li className="flex gap-2.5">
-                    <Dot /> Your user id is never shown — the post stays fully anonymous.
+                    <Dot /> It will be published under your user id{username ? ` @${username}` : ''}.
                   </li>
                   <li className="flex gap-2.5">
                     <Dot /> Once public, you cannot edit or delete it in V1.
@@ -355,7 +362,7 @@ export default function ResultsPage() {
                   <p className="mt-4 rounded-lg border border-line bg-paper px-4 py-3 text-sm text-ink-muted">
                     Publishing needs a user id — you&apos;ll be asked to{' '}
                     <span className="font-medium text-ink">sign in or create one</span> in the
-                    next step. It&apos;s never shown publicly.
+                    next step. Your post will appear under it.
                   </p>
                 )}
                 <div className="mt-7 flex flex-col gap-3 sm:flex-row">
@@ -388,8 +395,9 @@ export default function ResultsPage() {
               <>
                 <h2 className="font-serif text-2xl">Published</h2>
                 <p className="mt-3 text-sm leading-relaxed text-ink-muted">
-                  Your writing is now live and anonymous — no name attached, nothing pointing
-                  back to you.
+                  Your writing is now live under{' '}
+                  <span className="font-medium text-ink">@{username}</span> — go share some
+                  reactions.
                 </p>
                 <div className="mt-6 flex flex-col gap-3 sm:flex-row">
                   <Link
@@ -421,7 +429,7 @@ export default function ResultsPage() {
           handlePublish();
         }}
         title="One last step"
-        description="Publishing needs a user id — create one in seconds or sign in. Your identity is never attached to the public post."
+        description="Publishing needs a user id — create one in seconds or sign in. Your writing will appear under it."
       />
     </div>
   );

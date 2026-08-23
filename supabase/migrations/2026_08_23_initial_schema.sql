@@ -83,21 +83,20 @@ grant select (id, content, word_count, category, challenge_mode, challenge_durat
   on public_writings to anon, authenticated;
 
 -- ------------------------------------------------------------
--- 3. Writing reactions (+ aggregate view)
+-- 3. Writing reactions (one per user per writing)
 -- ------------------------------------------------------------
 
 create table writing_reactions (
   id uuid primary key default gen_random_uuid(),
   writing_id uuid not null references public_writings(id) on delete cascade,
   reaction_type text not null check (reaction_type in ('heart', 'clap', 'mind_blown', 'relate')),
-  -- Coarse hash of User-Agent + Accept-Language, used only to prevent
-  -- duplicate reactions from the same browser. Not an identity.
-  session_fingerprint text not null,
+  user_id uuid not null references app_users(id) on delete cascade,
   created_at timestamptz not null default now()
 );
 
-create unique index idx_writing_reactions_unique
-  on writing_reactions(writing_id, session_fingerprint, reaction_type);
+-- One reaction total per user per writing — switching emoji updates the row.
+create unique index idx_writing_reactions_user_unique
+  on writing_reactions(writing_id, user_id);
 
 create index idx_writing_reactions_writing_id on writing_reactions(writing_id);
 
@@ -109,41 +108,95 @@ create policy "Reactions are viewable by everyone" on writing_reactions
 create policy "Anyone can add reactions" on writing_reactions
   for insert with check (true);
 
--- The fingerprint is computed server-side from coarse request headers and is
--- this app's only identity primitive (inserts already accept any
--- fingerprint), so a permissive DELETE policy matches the V1 threat model.
-create policy "Users can remove their own reactions" on writing_reactions
+create policy "Users can remove reactions" on writing_reactions
   for delete using (true);
 
 grant all on writing_reactions to anon, authenticated;
 
--- Aggregate view used by the feed. Explicit column list (never pw.*) plus
--- security_invoker so base-table RLS applies to viewers.
-create view public_writings_with_reactions
-with (security_invoker = true)
-as
-select
-  pw.id,
-  pw.content,
-  pw.word_count,
-  pw.category,
-  pw.challenge_mode,
-  pw.challenge_duration,
-  pw.created_at,
-  coalesce(sum(case when wr.reaction_type = 'heart' then 1 else 0 end), 0) as heart_count,
-  coalesce(sum(case when wr.reaction_type = 'clap' then 1 else 0 end), 0) as clap_count,
-  coalesce(sum(case when wr.reaction_type = 'mind_blown' then 1 else 0 end), 0) as mind_blown_count,
-  coalesce(sum(case when wr.reaction_type = 'relate' then 1 else 0 end), 0) as relate_count,
-  coalesce(count(wr.id), 0) as total_reactions
-from public_writings pw
-left join writing_reactions wr on wr.writing_id = pw.id
-group by pw.id;
-
-grant select on public_writings_with_reactions to anon, authenticated;
-
 -- ------------------------------------------------------------
--- 4. Auth RPCs (SECURITY DEFINER)
+-- 4. Auth + feed RPCs (SECURITY DEFINER)
+--    The server calls these instead of querying tables directly; feed
+--    queries join app_users so posts can be shown under the author's id.
 -- ------------------------------------------------------------
+
+create or replace function list_feed_writings(
+  p_sort text,
+  p_category text,
+  p_limit int,
+  p_offset int
+)
+returns table (
+  id uuid,
+  content text,
+  word_count int,
+  category text,
+  challenge_mode text,
+  challenge_duration int,
+  created_at timestamptz,
+  total_reactions bigint,
+  author_username text
+)
+language sql
+security definer
+set search_path = public, extensions
+as $$
+  select
+    w.id,
+    w.content,
+    w.word_count,
+    w.category,
+    w.challenge_mode,
+    w.challenge_duration,
+    w.created_at,
+    count(r.id) as total_reactions,
+    u.username as author_username
+  from public_writings w
+  left join writing_reactions r on r.writing_id = w.id
+  left join app_users u on u.id = w.author_id
+  where (p_category is null or w.category = p_category)
+  group by w.id, u.username
+  order by
+    case when p_sort = 'popular' then count(r.id) end desc,
+    w.created_at desc
+  limit p_limit
+  offset p_offset;
+$$;
+
+create or replace function get_feed_writing(p_id uuid)
+returns table (
+  id uuid,
+  content text,
+  word_count int,
+  category text,
+  challenge_mode text,
+  challenge_duration int,
+  created_at timestamptz,
+  total_reactions bigint,
+  author_username text
+)
+language sql
+security definer
+set search_path = public, extensions
+as $$
+  select
+    w.id,
+    w.content,
+    w.word_count,
+    w.category,
+    w.challenge_mode,
+    w.challenge_duration,
+    w.created_at,
+    count(r.id) as total_reactions,
+    u.username as author_username
+  from public_writings w
+  left join writing_reactions r on r.writing_id = w.id
+  left join app_users u on u.id = w.author_id
+  where w.id = p_id
+  group by w.id, u.username;
+$$;
+
+grant execute on function list_feed_writings(text, text, int, int) to anon;
+grant execute on function get_feed_writing(uuid) to anon;
 
 -- Usernames: 3-24 chars of a-z / 0-9 / _, stored lowercase (case-insensitive).
 create or replace function register_user(p_username text, p_password text)

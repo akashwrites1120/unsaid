@@ -45,7 +45,7 @@ const STEPS = [
 
 const PRINCIPLES = [
   { title: 'Never deleted', text: 'Lose the challenge, keep every word. Your writing is always saved.' },
-  { title: 'Anonymous by design', text: 'Published posts carry no name. Even with an account, your identity never shows.' },
+  { title: 'Published as you', text: 'Posts appear under your user id — a small identity you create in seconds.' },
   { title: 'Take it with you', text: 'Download any finished piece as a file. Your words belong to you, online or off.' },
 ];
 
@@ -276,7 +276,7 @@ export default function LandingPage() {
           <span className="font-mono text-xs font-semibold tracking-[0.18em]">
             WRITE<span className="text-accent">·</span>OR<span className="text-accent">·</span>LOSE
           </span>
-          <span>Writing is free. Publishing asks for a user id — posts stay anonymous.</span>
+          <span>Writing is free. Publishing needs a user id — posts show it proudly.</span>
         </div>
       </footer>
     </div>

@@ -116,7 +116,7 @@ function AuthDialogBody({
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-ink-muted">
           {description ??
-            'Writing is free — an account only gates publishing. Your posts stay anonymous either way.'}
+            'Writing is free — an account only gates publishing. Your posts appear under your user id.'}
         </p>
 
         {/* Tabs */}
